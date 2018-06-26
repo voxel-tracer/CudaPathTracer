@@ -1,6 +1,7 @@
 
 #define kBackbufferWidth 1280
 #define kBackbufferHeight 720
+#define kNumFrames 100
 
 #define DO_SAMPLES_PER_PIXEL 4
 #define DO_ANIMATE 0

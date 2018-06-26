@@ -143,7 +143,7 @@
       <BufferSecurityCheck>false</BufferSecurityCheck>
     </ClCompile>
     <Link>
-      <SubSystem>Windows</SubSystem>
+      <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -166,7 +166,7 @@
     <ClInclude Include="..\Source\enkiTS\Threads.h" />
     <ClInclude Include="..\Source\Maths.h" />
     <ClInclude Include="..\Source\Test.h" />
-    <ClInclude Include="..\Source\stb_image.h" />
+    <ClInclude Include="stb_image_write.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.editorconfig" />

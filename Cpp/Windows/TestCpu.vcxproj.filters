@@ -27,9 +27,6 @@
     <ClInclude Include="..\Source\Test.h">
       <Filter>Source</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\stb_image.h">
-      <Filter>Source</Filter>
-    </ClInclude>
     <ClInclude Include="..\Source\enkiTS\Atomics.h">
       <Filter>Source\enkiTS</Filter>
     </ClInclude>
@@ -51,6 +48,7 @@
     <ClInclude Include="..\Source\Config.h">
       <Filter>Source</Filter>
     </ClInclude>
+    <ClInclude Include="stb_image_write.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.editorconfig" />
