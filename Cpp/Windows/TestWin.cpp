@@ -34,8 +34,6 @@ int main(int argc, char** argv) {
     g_Backbuffer = new float[kBackbufferWidth * kBackbufferHeight * 4];
     memset(g_Backbuffer, 0, kBackbufferWidth * kBackbufferHeight * 4 * sizeof(g_Backbuffer[0]));
 
-    InitializeTest();
-
     // Main rendering loop
     const clock_t start_time = clock();
     size_t rayCounter = 0;

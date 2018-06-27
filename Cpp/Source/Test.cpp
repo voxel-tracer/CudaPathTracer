@@ -2,7 +2,6 @@
 #include "Test.h"
 #include "Maths.h"
 #include <algorithm>
-#include "enkiTS/TaskScheduler_c.h"
 #include <atomic>
 
 static Sphere s_Spheres[] =
@@ -218,19 +217,6 @@ static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state
     }
 }
 
-static enkiTaskScheduler* g_TS;
-
-void InitializeTest()
-{
-    g_TS = enkiNewTaskScheduler();
-    enkiInitTaskScheduler(g_TS);
-}
-
-void ShutdownTest()
-{
-    enkiDeleteTaskScheduler(g_TS);
-}
-
 struct JobData
 {
     float time;
@@ -312,11 +298,7 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
     args.rayCount = 0;
-    enkiTaskSet* task = enkiCreateTaskSet(g_TS, TraceRowJob);
-    bool threaded = true;
-    enkiAddTaskSetToPipeMinRange(g_TS, task, &args, screenHeight, threaded ? 4 : screenHeight);
-    enkiWaitForTaskSet(g_TS, task);
-    enkiDeleteTaskSet(task);
+    TraceRowJob(0, screenHeight, 0, &args);
     outRayCount = args.rayCount;
 }
 
