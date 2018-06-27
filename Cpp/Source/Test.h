@@ -1,9 +1,6 @@
 #pragma once
 #include <stdint.h>
 
-void InitializeTest();
-void ShutdownTest();
-
 void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight);
 void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, float* backbuffer, int& outRayCount);
 

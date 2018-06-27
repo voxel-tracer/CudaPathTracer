@@ -234,9 +234,6 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
     float invWidth = 1.0f / data.screenWidth;
     float invHeight = 1.0f / data.screenHeight;
     float lerpFac = float(data.frameCount) / float(data.frameCount+1);
-#if DO_ANIMATE
-    lerpFac *= DO_ANIMATE_SMOOTHING;
-#endif
 #if !DO_PROGRESSIVE
     lerpFac = 0;
 #endif
@@ -269,10 +266,6 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
 
 void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight)
 {
-#if DO_ANIMATE
-    s_Spheres[1].center.y = cosf(time) + 1.0f;
-    s_Spheres[8].center.z = sinf(time)*0.3f;
-#endif
     float3 lookfrom(0, 2, 3);
     float3 lookat(0, 0, 0);
     float distToFocus = 3;
