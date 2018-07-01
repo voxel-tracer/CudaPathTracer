@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
     // Main rendering loop
     const clock_t start_time = clock();
     size_t rayCounter = 0;
+    UpdateTest(float(clock()) / CLOCKS_PER_SEC, 0, kBackbufferWidth, kBackbufferHeight);
     for (int i = 0; i < kNumFrames; i++)
         rayCounter += RenderFrame();
     const float duration = (float) (clock() - start_time) / CLOCKS_PER_SEC;
@@ -52,7 +53,6 @@ static size_t RenderFrame()
     float t = float(clock()) / CLOCKS_PER_SEC;
     static int s_FrameCount = 0;
     int rayCount;
-    UpdateTest(t, s_FrameCount, kBackbufferWidth, kBackbufferHeight);
     DrawTest(t, s_FrameCount, kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCount);
     s_FrameCount++;
 

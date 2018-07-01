@@ -227,10 +227,10 @@ struct JobData
     std::atomic<int> rayCount;
 };
 
-static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* data_)
+static void TracePixelJob(const uint32_t x, const uint32_t y, void* data_)
 {
     JobData& data = *(JobData*)data_;
-    float* backbuffer = data.backbuffer + start * data.screenWidth * 4;
+    float* backbuffer = data.backbuffer + (y * data.screenWidth + x) * 4;
     float invWidth = 1.0f / data.screenWidth;
     float invHeight = 1.0f / data.screenHeight;
     float lerpFac = float(data.frameCount) / float(data.frameCount+1);
@@ -238,29 +238,23 @@ static void TraceRowJob(uint32_t start, uint32_t end, uint32_t threadnum, void* 
     lerpFac = 0;
 #endif
     int rayCount = 0;
-    for (uint32_t y = start; y < end; ++y)
+    uint32_t state = (x * 1973 + y * 9277 + data.frameCount * 26699) | 1;
+    float3 col(0, 0, 0);
+    for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++)
     {
-        uint32_t state = (y * 9781 + data.frameCount * 6271) | 1;
-        for (int x = 0; x < data.screenWidth; ++x)
-        {
-            float3 col(0, 0, 0);
-            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++)
-            {
-                float u = float(x + RandomFloat01(state)) * invWidth;
-                float v = float(y + RandomFloat01(state)) * invHeight;
-                Ray r = data.cam->GetRay(u, v, state);
-                col += Trace(r, 0, rayCount, state);
-            }
-            col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
-            
-            float3 prev(backbuffer[0], backbuffer[1], backbuffer[2]);
-            col = prev * lerpFac + col * (1-lerpFac);
-            backbuffer[0] = col.x;
-            backbuffer[1] = col.y;
-            backbuffer[2] = col.z;
-            backbuffer += 4;
-        }
+        float u = float(x + RandomFloat01(state)) * invWidth;
+        float v = float(y + RandomFloat01(state)) * invHeight;
+        Ray r = data.cam->GetRay(u, v, state);
+        col += Trace(r, 0, rayCount, state);
     }
+    col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
+    
+    float3 prev(backbuffer[0], backbuffer[1], backbuffer[2]);
+    col = prev * lerpFac + col * (1-lerpFac);
+    backbuffer[0] = col.x;
+    backbuffer[1] = col.y;
+    backbuffer[2] = col.z;
+    backbuffer += 4;
     data.rayCount += rayCount;
 }
 
@@ -291,7 +285,9 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
     args.rayCount = 0;
-    TraceRowJob(0, screenHeight, 0, &args);
+    for (uint32_t y = 0; y < screenHeight; y++)
+        for (uint32_t x = 0; x < screenWidth; x++)
+            TracePixelJob(x, y, &args);
     outRayCount = args.rayCount;
 }
 
