@@ -176,6 +176,63 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
     return true;
 }
 
+static float3 TraceIterative(const Ray& r, int& inoutRayCount, uint32_t& state)
+{
+    Hit rec;
+    int id = 0;
+    bool doMaterialE = true;
+    float3 color;
+    float3 attenuation(1, 1, 1);
+    Ray local_ray = r;
+
+    for (int depth = 0; depth <= kMaxDepth; depth++)
+    {
+        ++inoutRayCount;
+        if (HitWorld(local_ray, kMinT, kMaxT, rec, id))
+        {
+            Ray scattered;
+            float3 lightE;
+            const Material& mat = s_SphereMats[id];
+            float3 matE = mat.emissive;
+            float3 local_attenuation;
+            if (depth < kMaxDepth && Scatter(mat, local_ray, rec, local_attenuation, scattered, lightE, inoutRayCount, state))
+            {
+#if DO_LIGHT_SAMPLING
+                if (!doMaterialE) matE = float3(0, 0, 0); // don't add material emission if told so
+                                                          // dor Lambert materials, we just did explicit light (emissive) sampling and already
+                                                          // for their contribution, so if next ray bounce hits the light again, don't add
+                                                          // emission
+                doMaterialE = (mat.type != Material::Lambert);
+#endif
+                color += (matE + lightE) * attenuation;
+                attenuation *= local_attenuation;
+                local_ray = scattered;
+            }
+            else
+            {
+                color += matE * attenuation;
+                break;
+            }
+        }
+        else
+        {
+            // sky
+#if DO_MITSUBA_COMPARE
+            color += attenuation * float3(0.15f, 0.21f, 0.3f); // easier compare with Mitsuba's constant environment light
+            break;
+#else
+            float3 unitDir = local_ray.dir;
+            float t = 0.5f*(unitDir.y + 1.0f);
+            color += attenuation * ((1.0f - t)*float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+            break;
+#endif
+        }
+    }
+
+    return color;
+}
+
+
 static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state, bool doMaterialE = true)
 {
     Hit rec;
@@ -245,7 +302,8 @@ static void TracePixelJob(const uint32_t x, const uint32_t y, void* data_)
         float u = float(x + RandomFloat01(state)) * invWidth;
         float v = float(y + RandomFloat01(state)) * invHeight;
         Ray r = data.cam->GetRay(u, v, state);
-        col += Trace(r, 0, rayCount, state);
+        //col += Trace(r, 0, rayCount, state);
+        col += TraceIterative(r, rayCount, state);
     }
     col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
     
@@ -285,8 +343,8 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
     args.rayCount = 0;
-    for (uint32_t y = 0; y < screenHeight; y++)
-        for (uint32_t x = 0; x < screenWidth; x++)
+    for (int y = 0; y < screenHeight; y++)
+        for (int x = 0; x < screenWidth; x++)
             TracePixelJob(x, y, &args);
     outRayCount = args.rayCount;
 }
