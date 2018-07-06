@@ -176,11 +176,79 @@ static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3
     return true;
 }
 
+
+static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, uint32_t& state)
+{
+    if (mat.type == Material::Lambert)
+    {
+        // random point on unit sphere that is tangent to the hit point
+        float3 target = rec.pos + rec.normal + RandomUnitVector(state);
+        scattered = Ray(rec.pos, normalize(target - rec.pos));
+        attenuation = mat.albedo;
+
+        return true;
+    }
+    else if (mat.type == Material::Metal)
+    {
+        AssertUnit(r_in.dir); AssertUnit(rec.normal);
+        float3 refl = reflect(r_in.dir, rec.normal);
+        // reflected ray, and random inside of sphere based on roughness
+        float roughness = mat.roughness;
+#if DO_MITSUBA_COMPARE
+        roughness = 0; // until we get better BRDF for metals
+#endif
+        scattered = Ray(rec.pos, normalize(refl + roughness * RandomInUnitSphere(state)));
+        attenuation = mat.albedo;
+        return dot(scattered.dir, rec.normal) > 0;
+    }
+    else if (mat.type == Material::Dielectric)
+    {
+        AssertUnit(r_in.dir); AssertUnit(rec.normal);
+        float3 outwardN;
+        float3 rdir = r_in.dir;
+        float3 refl = reflect(rdir, rec.normal);
+        float nint;
+        attenuation = float3(1, 1, 1);
+        float3 refr;
+        float reflProb;
+        float cosine;
+        if (dot(rdir, rec.normal) > 0)
+        {
+            outwardN = -rec.normal;
+            nint = mat.ri;
+            cosine = mat.ri * dot(rdir, rec.normal);
+        }
+        else
+        {
+            outwardN = rec.normal;
+            nint = 1.0f / mat.ri;
+            cosine = -dot(rdir, rec.normal);
+        }
+        if (refract(rdir, outwardN, nint, refr))
+        {
+            reflProb = schlick(cosine, mat.ri);
+        }
+        else
+        {
+            reflProb = 1;
+        }
+        if (RandomFloat01(state) < reflProb)
+            scattered = Ray(rec.pos, normalize(refl));
+        else
+            scattered = Ray(rec.pos, normalize(refr));
+    }
+    else
+    {
+        attenuation = float3(1, 0, 1);
+        return false;
+    }
+    return true;
+}
+
 static float3 TraceIterative(const Ray& r, int& inoutRayCount, uint32_t& state)
 {
     Hit rec;
     int id = 0;
-    bool doMaterialE = true;
     float3 color;
     float3 attenuation(1, 1, 1);
     Ray local_ray = r;
@@ -191,26 +259,16 @@ static float3 TraceIterative(const Ray& r, int& inoutRayCount, uint32_t& state)
         if (HitWorld(local_ray, kMinT, kMaxT, rec, id))
         {
             Ray scattered;
-            float3 lightE;
             const Material& mat = s_SphereMats[id];
-            float3 matE = mat.emissive;
             float3 local_attenuation;
-            if (depth < kMaxDepth && Scatter(mat, local_ray, rec, local_attenuation, scattered, lightE, inoutRayCount, state))
+            color += mat.emissive * attenuation;
+            if (depth < kMaxDepth && ScatterNoLightSampling(mat, local_ray, rec, local_attenuation, scattered, state))
             {
-#if DO_LIGHT_SAMPLING
-                if (!doMaterialE) matE = float3(0, 0, 0); // don't add material emission if told so
-                                                          // dor Lambert materials, we just did explicit light (emissive) sampling and already
-                                                          // for their contribution, so if next ray bounce hits the light again, don't add
-                                                          // emission
-                doMaterialE = (mat.type != Material::Lambert);
-#endif
-                color += (matE + lightE) * attenuation;
                 attenuation *= local_attenuation;
                 local_ray = scattered;
             }
             else
             {
-                color += matE * attenuation;
                 break;
             }
         }
