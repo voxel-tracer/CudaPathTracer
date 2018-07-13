@@ -76,6 +76,7 @@ struct Ray
     
     float3 orig;
     float3 dir;
+    bool done = false;
 };
 
 
@@ -84,6 +85,14 @@ struct Hit
     float3 pos;
     float3 normal;
     float t;
+};
+
+struct Sample
+{
+    float3 color;
+    float3 attenuation;
+
+    Sample() : color(0, 0, 0), attenuation(1, 1, 1) {}
 };
 
 

@@ -245,49 +245,55 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
     return true;
 }
 
-static float3 TraceIterative(const Ray& r, int& inoutRayCount, uint32_t& state)
+static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& inoutRayCount, uint32_t& state)
 {
-    Hit rec;
-    int id = 0;
-    float3 color;
-    float3 attenuation(1, 1, 1);
-    Ray local_ray = r;
+    Hit* hits = new Hit[num_rays];
 
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
-        ++inoutRayCount;
-        if (HitWorld(local_ray, kMinT, kMaxT, rec, id))
+        for (int rIdx = 0; rIdx < num_rays; rIdx++)
         {
-            Ray scattered;
-            const Material& mat = s_SphereMats[id];
-            float3 local_attenuation;
-            color += mat.emissive * attenuation;
-            if (depth < kMaxDepth && ScatterNoLightSampling(mat, local_ray, rec, local_attenuation, scattered, state))
+            const Ray& r = rays[rIdx];
+            if (r.done)
+                continue;
+
+            int id = 0;
+            Hit& rec = hits[rIdx];
+            Sample& sample = samples[rIdx];
+
+            ++inoutRayCount;
+            if (HitWorld(r, kMinT, kMaxT, rec, id))
             {
-                attenuation *= local_attenuation;
-                local_ray = scattered;
+                Ray scattered;
+                const Material& mat = s_SphereMats[id];
+                float3 local_attenuation;
+                sample.color += mat.emissive * sample.attenuation;
+                if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, rec, local_attenuation, scattered, state))
+                {
+                    sample.attenuation *= local_attenuation;
+                    rays[rIdx] = scattered;
+                }
+                else
+                {
+                    rays[rIdx].done = true;
+                }
             }
             else
             {
-                break;
-            }
-        }
-        else
-        {
-            // sky
+                // sky
 #if DO_MITSUBA_COMPARE
-            color += attenuation * float3(0.15f, 0.21f, 0.3f); // easier compare with Mitsuba's constant environment light
-            break;
+                sample.color += sample.attenuation * float3(0.15f, 0.21f, 0.3f); // easier compare with Mitsuba's constant environment light
 #else
-            float3 unitDir = local_ray.dir;
-            float t = 0.5f*(unitDir.y + 1.0f);
-            color += attenuation * ((1.0f - t)*float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * 0.3f;
-            break;
+                float3 unitDir = r.dir;
+                float t = 0.5f*(unitDir.y + 1.0f);
+                sample.color += sample.attenuation * ((1.0f - t)*float3(1.0f, 1.0f, 1.0f) + t * float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+                rays[rIdx].done = true;
 #endif
+            }
         }
     }
 
-    return color;
+    delete[] hits;
 }
 
 
@@ -342,6 +348,70 @@ struct JobData
     std::atomic<int> rayCount;
 };
 
+static void TracePixels(void* data_)
+{
+    JobData& data = *(JobData*)data_;
+    float* backbuffer = data.backbuffer;
+    float invWidth = 1.0f / data.screenWidth;
+    float invHeight = 1.0f / data.screenHeight;
+    float lerpFac = float(data.frameCount) / float(data.frameCount + 1);
+#if !DO_PROGRESSIVE
+    lerpFac = 0;
+#endif
+    int rayCount = 0;
+    uint32_t state = (data.frameCount * 26699) | 1;
+
+    const int num_rays = data.screenWidth*data.screenHeight*DO_SAMPLES_PER_PIXEL;
+
+    // let's allocate a few arrays needed by the renderer
+    Ray* rays = new Ray[num_rays];
+    Sample* samples = new Sample[num_rays];
+
+    // generate camera rays for all samples
+    for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
+    {
+        for (int x = 0; x < data.screenWidth; x++)
+        {
+            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
+            {
+                float u = float(x + RandomFloat01(state)) * invWidth;
+                float v = float(y + RandomFloat01(state)) * invHeight;
+                rays[rIdx] = data.cam->GetRay(u, v, state);
+            }
+        }
+    }
+
+    // trace all samples through the scene
+    TraceIterative(rays, samples, num_rays, rayCount, state);
+
+    // compute cumulated color for all samples
+    for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
+    {
+        for (int x = 0; x < data.screenWidth; x++)
+        {
+            float3 col(0, 0, 0);
+            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
+            {
+                col += samples[rIdx].color;
+            }
+            col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
+
+            float3 prev(backbuffer[0], backbuffer[1], backbuffer[2]);
+            col = prev * lerpFac + col * (1 - lerpFac);
+            backbuffer[0] = col.x;
+            backbuffer[1] = col.y;
+            backbuffer[2] = col.z;
+            backbuffer += 4;
+        }
+    }
+
+    data.rayCount += rayCount;
+
+    // don't forget to delete allocated arrays
+    delete[] rays;
+    delete[] samples;
+}
+
 static void TracePixelJob(const uint32_t x, const uint32_t y, void* data_)
 {
     JobData& data = *(JobData*)data_;
@@ -360,8 +430,7 @@ static void TracePixelJob(const uint32_t x, const uint32_t y, void* data_)
         float u = float(x + RandomFloat01(state)) * invWidth;
         float v = float(y + RandomFloat01(state)) * invHeight;
         Ray r = data.cam->GetRay(u, v, state);
-        //col += Trace(r, 0, rayCount, state);
-        col += TraceIterative(r, rayCount, state);
+        col += Trace(r, 0, rayCount, state);
     }
     col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
     
@@ -401,9 +470,10 @@ void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, flo
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
     args.rayCount = 0;
-    for (int y = 0; y < screenHeight; y++)
-        for (int x = 0; x < screenWidth; x++)
-            TracePixelJob(x, y, &args);
+    //for (int y = 0; y < screenHeight; y++)
+    //    for (int x = 0; x < screenWidth; x++)
+    //        TracePixelJob(x, y, &args);
+    TracePixels(&args);
     outRayCount = args.rayCount;
 }
 
