@@ -48,22 +48,20 @@ const float kMaxT = 1.0e7f;
 const int kMaxDepth = 10;
 
 
-bool HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
+void HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
 {
     Hit tmpHit;
-    bool anything = false;
     float closest = tMax;
+    outHit.t = -1;
     for (int i = 0; i < kSphereCount; ++i)
     {
         if (HitSphere(r, s_Spheres[i], tMin, closest, tmpHit))
         {
-            anything = true;
             closest = tmpHit.t;
             outHit = tmpHit;
             outID = i;
         }
     }
-    return anything;
 }
 
 
@@ -262,7 +260,8 @@ static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& 
             Sample& sample = samples[rIdx];
 
             ++inoutRayCount;
-            if (HitWorld(r, kMinT, kMaxT, rec, id))
+            HitWorld(r, kMinT, kMaxT, rec, id);
+            if (rec.t > 0)
             {
                 Ray scattered;
                 const Material& mat = s_SphereMats[id];
@@ -302,7 +301,8 @@ static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state
     Hit rec;
     int id = 0;
     ++inoutRayCount;
-    if (HitWorld(r, kMinT, kMaxT, rec, id))
+    HitWorld(r, kMinT, kMaxT, rec, id);
+    if (rec.t > 0)
     {
         Ray scattered;
         float3 attenuation;
