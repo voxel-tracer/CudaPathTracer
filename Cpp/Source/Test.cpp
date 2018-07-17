@@ -48,19 +48,29 @@ const float kMaxT = 1.0e7f;
 const int kMaxDepth = 10;
 
 
-void HitWorld(const Ray& r, float tMin, float tMax, Hit& outHit, int& outID)
+void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* hits)
 {
-    Hit tmpHit;
-    float closest = tMax;
-    outHit.t = -1;
-    for (int i = 0; i < kSphereCount; ++i)
+    for (int rIdx = 0; rIdx < num_rays; rIdx++)
     {
-        if (HitSphere(r, s_Spheres[i], tMin, closest, tmpHit))
+        const Ray& r = rays[rIdx];
+        if (r.done)
+            continue;
+
+        Hit tmpHit;
+        float closest = tMax;
+        Hit outHit;
+        outHit.t = -1;
+        for (int i = 0; i < kSphereCount; ++i)
         {
-            closest = tmpHit.t;
-            outHit = tmpHit;
-            outID = i;
+            if (HitSphere(r, s_Spheres[i], tMin, closest, tmpHit))
+            {
+                closest = tmpHit.t;
+                outHit = tmpHit;
+                outHit.id = i;
+            }
         }
+
+        hits[rIdx] = outHit;
     }
 }
 
@@ -249,22 +259,21 @@ static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& 
 
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
+        HitWorld(rays, num_rays, kMinT, kMaxT, hits);
         for (int rIdx = 0; rIdx < num_rays; rIdx++)
         {
             const Ray& r = rays[rIdx];
             if (r.done)
                 continue;
 
-            int id = 0;
             Hit& rec = hits[rIdx];
             Sample& sample = samples[rIdx];
 
             ++inoutRayCount;
-            HitWorld(r, kMinT, kMaxT, rec, id);
             if (rec.t > 0)
             {
                 Ray scattered;
-                const Material& mat = s_SphereMats[id];
+                const Material& mat = s_SphereMats[rec.id];
                 float3 local_attenuation;
                 sample.color += mat.emissive * sample.attenuation;
                 if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, rec, local_attenuation, scattered, state))
@@ -293,49 +302,6 @@ static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& 
     }
 
     delete[] hits;
-}
-
-
-static float3 Trace(const Ray& r, int depth, int& inoutRayCount, uint32_t& state, bool doMaterialE = true)
-{
-    Hit rec;
-    int id = 0;
-    ++inoutRayCount;
-    HitWorld(r, kMinT, kMaxT, rec, id);
-    if (rec.t > 0)
-    {
-        Ray scattered;
-        float3 attenuation;
-        float3 lightE;
-        const Material& mat = s_SphereMats[id];
-        float3 matE = mat.emissive;
-        if (depth < kMaxDepth && Scatter(mat, r, rec, attenuation, scattered, lightE, inoutRayCount, state))
-        {
-#if DO_LIGHT_SAMPLING
-            if (!doMaterialE) matE = float3(0,0,0); // don't add material emission if told so
-            // dor Lambert materials, we just did explicit light (emissive) sampling and already
-            // for their contribution, so if next ray bounce hits the light again, don't add
-            // emission
-            doMaterialE = (mat.type != Material::Lambert);
-#endif
-            return matE + lightE + attenuation * Trace(scattered, depth+1, inoutRayCount, state, doMaterialE);
-        }
-        else
-        {
-            return matE;
-        }
-    }
-    else
-    {
-        // sky
-#if DO_MITSUBA_COMPARE
-        return float3(0.15f,0.21f,0.3f); // easier compare with Mitsuba's constant environment light
-#else
-        float3 unitDir = r.dir;
-        float t = 0.5f*(unitDir.y + 1.0f);
-        return ((1.0f-t)*float3(1.0f, 1.0f, 1.0f) + t*float3(0.5f, 0.7f, 1.0f)) * 0.3f;
-#endif
-    }
 }
 
 struct JobData
@@ -410,37 +376,6 @@ static void TracePixels(void* data_)
     // don't forget to delete allocated arrays
     delete[] rays;
     delete[] samples;
-}
-
-static void TracePixelJob(const uint32_t x, const uint32_t y, void* data_)
-{
-    JobData& data = *(JobData*)data_;
-    float* backbuffer = data.backbuffer + (y * data.screenWidth + x) * 4;
-    float invWidth = 1.0f / data.screenWidth;
-    float invHeight = 1.0f / data.screenHeight;
-    float lerpFac = float(data.frameCount) / float(data.frameCount+1);
-#if !DO_PROGRESSIVE
-    lerpFac = 0;
-#endif
-    int rayCount = 0;
-    uint32_t state = (x * 1973 + y * 9277 + data.frameCount * 26699) | 1;
-    float3 col(0, 0, 0);
-    for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++)
-    {
-        float u = float(x + RandomFloat01(state)) * invWidth;
-        float v = float(y + RandomFloat01(state)) * invHeight;
-        Ray r = data.cam->GetRay(u, v, state);
-        col += Trace(r, 0, rayCount, state);
-    }
-    col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
-    
-    float3 prev(backbuffer[0], backbuffer[1], backbuffer[2]);
-    col = prev * lerpFac + col * (1-lerpFac);
-    backbuffer[0] = col.x;
-    backbuffer[1] = col.y;
-    backbuffer[2] = col.z;
-    backbuffer += 4;
-    data.rayCount += rayCount;
 }
 
 void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight)
