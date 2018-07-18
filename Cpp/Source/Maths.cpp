@@ -17,33 +17,33 @@ float RandomFloat01(uint32_t& state)
     return (XorShift32(state) & 0xFFFFFF) / 16777216.0f;
 }
 
-float3 RandomInUnitDisk(uint32_t& state)
+f3 RandomInUnitDisk(uint32_t& state)
 {
-    float3 p;
+    f3 p;
     do
     {
-        p = 2.0 * float3(RandomFloat01(state),RandomFloat01(state),0) - float3(1,1,0);
+        p = 2.0 * f3(RandomFloat01(state),RandomFloat01(state),0) - f3(1,1,0);
     } while (dot(p,p) >= 1.0);
     return p;
 }
 
-float3 RandomInUnitSphere(uint32_t& state)
+f3 RandomInUnitSphere(uint32_t& state)
 {
-    float3 p;
+    f3 p;
     do {
-        p = 2.0*float3(RandomFloat01(state),RandomFloat01(state),RandomFloat01(state)) - float3(1,1,1);
+        p = 2.0*f3(RandomFloat01(state),RandomFloat01(state),RandomFloat01(state)) - f3(1,1,1);
     } while (p.sqLength() >= 1.0);
     return p;
 }
 
-float3 RandomUnitVector(uint32_t& state)
+f3 RandomUnitVector(uint32_t& state)
 {
     float z = RandomFloat01(state) * 2.0f - 1.0f;
     float a = RandomFloat01(state) * 2.0f * kPI;
     float r = sqrtf(1.0f - z * z);
     float x = r * cosf(a);
     float y = r * sinf(a);
-    return float3(x, y, z);
+    return f3(x, y, z);
 }
 
 
@@ -51,7 +51,7 @@ bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, Hit& outHi
 {
     assert(s.invRadius == 1.0f/s.radius);
     AssertUnit(r.dir);
-    float3 oc = r.orig - s.center;
+    f3 oc = r.orig - s.center;
     float b = dot(oc, r.dir);
     float c = dot(oc, oc) - s.radius*s.radius;
     float discr = b*b - c;
