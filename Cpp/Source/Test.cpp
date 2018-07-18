@@ -140,14 +140,19 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
     return true;
 }
 
-static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& inoutRayCount, uint32_t& state)
+static void TraceIterative(Ray* rays, Sample* samples, Hit* hits, const int numRays, int& inoutRayCount, uint32_t& state)
 {
-    Hit* hits = new Hit[num_rays];
+    for (int rIdx = 0; rIdx < numRays; rIdx++)
+    {
+        Sample& sample = samples[rIdx];
+        sample.color = float3(0, 0, 0);
+        sample.attenuation = float3(1, 1, 1);
+    }
 
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
-        HitWorld(rays, num_rays, kMinT, kMaxT, hits);
-        for (int rIdx = 0; rIdx < num_rays; rIdx++)
+        HitWorld(rays, numRays, kMinT, kMaxT, hits);
+        for (int rIdx = 0; rIdx < numRays; rIdx++)
         {
             const Ray& r = rays[rIdx];
             if (r.done)
@@ -187,23 +192,22 @@ static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& 
             }
         }
     }
-
-    delete[] hits;
 }
 
-struct JobData
+struct RendererData
 {
-    float time;
     int frameCount;
     int screenWidth, screenHeight;
     float* backbuffer;
     Camera* cam;
-    std::atomic<int> rayCount;
+    int numRays;
+    Ray* rays;
+    Hit* hits;
+    Sample* samples;
 };
 
-static void TracePixels(void* data_)
+static int TracePixels(RendererData data)
 {
-    JobData& data = *(JobData*)data_;
     float* backbuffer = data.backbuffer;
     float invWidth = 1.0f / data.screenWidth;
     float invHeight = 1.0f / data.screenHeight;
@@ -214,11 +218,6 @@ static void TracePixels(void* data_)
     int rayCount = 0;
     uint32_t state = (data.frameCount * 26699) | 1;
 
-    const int num_rays = data.screenWidth*data.screenHeight*DO_SAMPLES_PER_PIXEL;
-
-    // let's allocate a few arrays needed by the renderer
-    Ray* rays = new Ray[num_rays];
-    Sample* samples = new Sample[num_rays];
 
     // generate camera rays for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -229,13 +228,13 @@ static void TracePixels(void* data_)
             {
                 float u = float(x + RandomFloat01(state)) * invWidth;
                 float v = float(y + RandomFloat01(state)) * invHeight;
-                rays[rIdx] = data.cam->GetRay(u, v, state);
+                data.rays[rIdx] = data.cam->GetRay(u, v, state);
             }
         }
     }
 
     // trace all samples through the scene
-    TraceIterative(rays, samples, num_rays, rayCount, state);
+    TraceIterative(data.rays, data.samples, data.hits, data.numRays, rayCount, state);
 
     // compute cumulated color for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -245,7 +244,7 @@ static void TracePixels(void* data_)
             float3 col(0, 0, 0);
             for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
             {
-                col += samples[rIdx].color;
+                col += data.samples[rIdx].color;
             }
             col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
 
@@ -258,14 +257,10 @@ static void TracePixels(void* data_)
         }
     }
 
-    data.rayCount += rayCount;
-
-    // don't forget to delete allocated arrays
-    delete[] rays;
-    delete[] samples;
+    return rayCount;
 }
 
-void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight)
+void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCount)
 {
     float3 lookfrom(0, 2, 3);
     float3 lookat(0, 0, 0);
@@ -280,36 +275,30 @@ void UpdateTest(float time, int frameCount, int screenWidth, int screenHeight)
         s_Spheres[i].UpdateDerivedData();
 
     s_Cam = Camera(lookfrom, lookat, float3(0, 1, 0), 60, float(screenWidth) / float(screenHeight), aperture, distToFocus);
-}
 
-void DrawTest(float time, int frameCount, int screenWidth, int screenHeight, float* backbuffer, int& outRayCount)
-{    
-    JobData args;
-    args.time = time;
-    args.frameCount = frameCount;
+    // let's allocate a few arrays needed by the renderer
+    int numRays = screenWidth * screenHeight * DO_SAMPLES_PER_PIXEL;
+    Ray* rays = new Ray[numRays];
+    Sample* samples = new Sample[numRays];
+    Hit* hits = new Hit[numRays];
+
+    RendererData args;
     args.screenWidth = screenWidth;
     args.screenHeight = screenHeight;
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
-    args.rayCount = 0;
-    //for (int y = 0; y < screenHeight; y++)
-    //    for (int x = 0; x < screenWidth; x++)
-    //        TracePixelJob(x, y, &args);
-    TracePixels(&args);
-    outRayCount = args.rayCount;
-}
+    args.rays = rays;
+    args.samples = samples;
+    args.hits = hits;
+    args.numRays = numRays;
 
-void GetObjectCount(int& outCount, int& outObjectSize, int& outMaterialSize, int& outCamSize)
-{
-    outCount = kSphereCount;
-    outObjectSize = sizeof(Sphere);
-    outMaterialSize = sizeof(Material);
-    outCamSize = sizeof(Camera);
-}
+    for (int frame = 0; frame < kNumFrames; frame++)
+    {
+        args.frameCount = frame;
+        outRayCount += TracePixels(args);
+    }
 
-void GetSceneDesc(void* outObjects, void* outMaterials, void* outCam)
-{
-    memcpy(outObjects, s_Spheres, kSphereCount * sizeof(s_Spheres[0]));
-    memcpy(outMaterials, s_SphereMats, kSphereCount * sizeof(s_SphereMats[0]));
-    memcpy(outCam, &s_Cam, sizeof(s_Cam));
+    delete[] rays;
+    delete[] samples;
+    delete[] hits;
 }

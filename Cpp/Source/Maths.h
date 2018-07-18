@@ -85,7 +85,7 @@ struct Hit
     float3 pos;
     float3 normal;
     float t;
-    int id;
+    int id = -1;
 };
 
 struct Sample
