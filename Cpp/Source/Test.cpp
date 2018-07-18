@@ -56,10 +56,8 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
         if (r.done)
             continue;
 
-        Hit tmpHit;
+        Hit tmpHit, outHit;
         float closest = tMax;
-        Hit outHit;
-        outHit.t = -1;
         for (int i = 0; i < kSphereCount; ++i)
         {
             if (HitSphere(r, s_Spheres[i], tMin, closest, tmpHit))
@@ -73,117 +71,6 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
         hits[rIdx] = outHit;
     }
 }
-
-
-static bool Scatter(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, float3& outLightE, int& inoutRayCount, uint32_t& state)
-{
-    outLightE = float3(0,0,0);
-    if (mat.type == Material::Lambert)
-    {
-        // random point on unit sphere that is tangent to the hit point
-        float3 target = rec.pos + rec.normal + RandomUnitVector(state);
-        scattered = Ray(rec.pos, normalize(target - rec.pos));
-        attenuation = mat.albedo;
-        
-        // sample lights
-#if DO_LIGHT_SAMPLING
-        for (int i = 0; i < kSphereCount; ++i)
-        {
-            const Material& smat = s_SphereMats[i];
-            if (smat.emissive.x <= 0 && smat.emissive.y <= 0 && smat.emissive.z <= 0)
-                continue; // skip non-emissive
-            if (&mat == &smat)
-                continue; // skip self
-            const Sphere& s = s_Spheres[i];
-            
-            // create a random direction towards sphere
-            // coord system for sampling: sw, su, sv
-            float3 sw = normalize(s.center - rec.pos);
-            float3 su = normalize(cross(fabs(sw.x)>0.01f ? float3(0,1,0):float3(1,0,0), sw));
-            float3 sv = cross(sw, su);
-            // sample sphere by solid angle
-            float cosAMax = sqrtf(1.0f - s.radius*s.radius / (rec.pos-s.center).sqLength());
-            float eps1 = RandomFloat01(state), eps2 = RandomFloat01(state);
-            float cosA = 1.0f - eps1 + eps1 * cosAMax;
-            float sinA = sqrtf(1.0f - cosA*cosA);
-            float phi = 2 * kPI * eps2;
-            float3 l = su * cosf(phi) * sinA + sv * sin(phi) * sinA + sw * cosA;
-            l.normalize();
-            
-            // shoot shadow ray
-            Hit lightHit;
-            int hitID;
-            ++inoutRayCount;
-            if (HitWorld(Ray(rec.pos, l), kMinT, kMaxT, lightHit, hitID) && hitID == i)
-            {
-                float omega = 2 * kPI * (1-cosAMax);
-                
-                float3 rdir = r_in.dir;
-                AssertUnit(rdir);
-                float3 nl = dot(rec.normal, rdir) < 0 ? rec.normal : -rec.normal;
-                outLightE += (mat.albedo * smat.emissive) * (std::max(0.0f, dot(l, nl)) * omega / kPI);
-            }
-        }
-#endif
-        return true;
-    }
-    else if (mat.type == Material::Metal)
-    {
-        AssertUnit(r_in.dir); AssertUnit(rec.normal);
-        float3 refl = reflect(r_in.dir, rec.normal);
-        // reflected ray, and random inside of sphere based on roughness
-        float roughness = mat.roughness;
-#if DO_MITSUBA_COMPARE
-        roughness = 0; // until we get better BRDF for metals
-#endif
-        scattered = Ray(rec.pos, normalize(refl + roughness*RandomInUnitSphere(state)));
-        attenuation = mat.albedo;
-        return dot(scattered.dir, rec.normal) > 0;
-    }
-    else if (mat.type == Material::Dielectric)
-    {
-        AssertUnit(r_in.dir); AssertUnit(rec.normal);
-        float3 outwardN;
-        float3 rdir = r_in.dir;
-        float3 refl = reflect(rdir, rec.normal);
-        float nint;
-        attenuation = float3(1,1,1);
-        float3 refr;
-        float reflProb;
-        float cosine;
-        if (dot(rdir, rec.normal) > 0)
-        {
-            outwardN = -rec.normal;
-            nint = mat.ri;
-            cosine = mat.ri * dot(rdir, rec.normal);
-        }
-        else
-        {
-            outwardN = rec.normal;
-            nint = 1.0f / mat.ri;
-            cosine = -dot(rdir, rec.normal);
-        }
-        if (refract(rdir, outwardN, nint, refr))
-        {
-            reflProb = schlick(cosine, mat.ri);
-        }
-        else
-        {
-            reflProb = 1;
-        }
-        if (RandomFloat01(state) < reflProb)
-            scattered = Ray(rec.pos, normalize(refl));
-        else
-            scattered = Ray(rec.pos, normalize(refr));
-    }
-    else
-    {
-        attenuation = float3(1,0,1);
-        return false;
-    }
-    return true;
-}
-
 
 static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const Hit& rec, float3& attenuation, Ray& scattered, uint32_t& state)
 {
@@ -266,11 +153,11 @@ static void TraceIterative(Ray* rays, Sample* samples, const int num_rays, int& 
             if (r.done)
                 continue;
 
-            Hit& rec = hits[rIdx];
+            const Hit& rec = hits[rIdx];
             Sample& sample = samples[rIdx];
 
             ++inoutRayCount;
-            if (rec.t > 0)
+            if (rec.id >= 0)
             {
                 Ray scattered;
                 const Material& mat = s_SphereMats[rec.id];
