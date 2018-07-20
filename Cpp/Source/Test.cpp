@@ -290,9 +290,17 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
 
     // let's allocate a few arrays needed by the renderer
     int numRays = screenWidth * screenHeight * DO_SAMPLES_PER_PIXEL;
-    Ray* rays = new Ray[numRays];
+    Ray* rays = NULL;
+    Hit* hits = NULL;
+#if DO_CUDA_RENDER
+    cudaMallocHost((void**)&rays, numRays * sizeof(Ray));
+    cudaMallocHost((void**)&hits, numRays * sizeof(Hit));
+#else
+    rays = new Ray[numRays];
+    hits = new Hit[numRays];
+#endif
+
     Sample* samples = new Sample[numRays];
-    Hit* hits = new Hit[numRays];
 
     RendererData args;
     args.screenWidth = screenWidth;
@@ -314,9 +322,14 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
         outRayCount += TracePixels(args);
     }
 
+#if DO_CUDA_RENDER
+    cudaFreeHost(rays);
+    cudaFreeHost(hits);
+#else
     delete[] rays;
-    delete[] samples;
     delete[] hits;
+#endif
+    delete[] samples;
 
 #if DO_CUDA_RENDER
     freeDeviceData(args.deviceData);
