@@ -25,8 +25,16 @@
       <Filter>Source</Filter>
     </ClInclude>
     <ClInclude Include="stb_image_write.h" />
+    <ClInclude Include="..\Cuda\CudaRender.cuh">
+      <Filter>Source</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.editorconfig" />
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="..\Cuda\CudaRender.cu">
+      <Filter>Source</Filter>
+    </CudaCompile>
   </ItemGroup>
 </Project>

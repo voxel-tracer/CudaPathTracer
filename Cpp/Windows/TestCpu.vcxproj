@@ -159,6 +159,7 @@
     <ClCompile Include="TestWin.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\Cuda\CudaRender.cuh" />
     <ClInclude Include="..\Source\Config.h" />
     <ClInclude Include="..\Source\Maths.h" />
     <ClInclude Include="..\Source\Test.h" />
@@ -166,6 +167,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.editorconfig" />
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="..\Cuda\CudaRender.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

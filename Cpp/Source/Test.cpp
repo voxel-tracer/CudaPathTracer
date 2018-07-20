@@ -4,6 +4,11 @@
 #include <algorithm>
 #include <atomic>
 
+#if DO_CUDA_RENDER
+#include "../Cuda/CudaRender.cuh"
+#endif // DO_CUDA_RENDER
+
+
 static Sphere s_Spheres[] =
 {
     {f3(0,-100.5,-1), 100},
@@ -46,6 +51,21 @@ static Camera s_Cam;
 const float kMinT = 0.001f;
 const float kMaxT = 1.0e7f;
 const int kMaxDepth = 10;
+
+struct RendererData
+{
+    int frameCount;
+    int screenWidth, screenHeight;
+    float* backbuffer;
+    Camera* cam;
+    int numRays;
+    Ray* rays;
+    Hit* hits;
+    Sample* samples;
+#if DO_CUDA_RENDER
+    DeviceData deviceData;
+#endif // DO_CUDA_RENDER
+};
 
 
 void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* hits)
@@ -140,26 +160,30 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
     return true;
 }
 
-static void TraceIterative(Ray* rays, Sample* samples, Hit* hits, const int numRays, int& inoutRayCount, uint32_t& state)
+static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_t& state)
 {
-    for (int rIdx = 0; rIdx < numRays; rIdx++)
+    for (int rIdx = 0; rIdx < data.numRays; rIdx++)
     {
-        Sample& sample = samples[rIdx];
+        Sample& sample = data.samples[rIdx];
         sample.color = f3(0, 0, 0);
         sample.attenuation = f3(1, 1, 1);
     }
 
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
-        HitWorld(rays, numRays, kMinT, kMaxT, hits);
-        for (int rIdx = 0; rIdx < numRays; rIdx++)
+#if DO_CUDA_RENDER
+        HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
+#else
+        HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
+#endif
+        for (int rIdx = 0; rIdx < data.numRays; rIdx++)
         {
-            const Ray& r = rays[rIdx];
+            const Ray& r = data.rays[rIdx];
             if (r.done)
                 continue;
 
-            const Hit& rec = hits[rIdx];
-            Sample& sample = samples[rIdx];
+            const Hit& rec = data.hits[rIdx];
+            Sample& sample = data.samples[rIdx];
 
             ++inoutRayCount;
             if (rec.id >= 0)
@@ -171,11 +195,11 @@ static void TraceIterative(Ray* rays, Sample* samples, Hit* hits, const int numR
                 if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, rec, local_attenuation, scattered, state))
                 {
                     sample.attenuation *= local_attenuation;
-                    rays[rIdx] = scattered;
+                    data.rays[rIdx] = scattered;
                 }
                 else
                 {
-                    rays[rIdx].done = true;
+                    data.rays[rIdx].done = true;
                 }
             }
             else
@@ -187,24 +211,12 @@ static void TraceIterative(Ray* rays, Sample* samples, Hit* hits, const int numR
                 f3 unitDir = r.dir;
                 float t = 0.5f*(unitDir.y + 1.0f);
                 sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
-                rays[rIdx].done = true;
+                data.rays[rIdx].done = true;
 #endif
             }
         }
     }
 }
-
-struct RendererData
-{
-    int frameCount;
-    int screenWidth, screenHeight;
-    float* backbuffer;
-    Camera* cam;
-    int numRays;
-    Ray* rays;
-    Hit* hits;
-    Sample* samples;
-};
 
 static int TracePixels(RendererData data)
 {
@@ -234,7 +246,7 @@ static int TracePixels(RendererData data)
     }
 
     // trace all samples through the scene
-    TraceIterative(data.rays, data.samples, data.hits, data.numRays, rayCount, state);
+    TraceIterative(data, rayCount, state);
 
     // compute cumulated color for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -292,6 +304,10 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.hits = hits;
     args.numRays = numRays;
 
+#if DO_CUDA_RENDER
+    initDeviceData(s_Spheres, kSphereCount, numRays, args.deviceData);
+#endif // DO_CUDA_RENDER
+
     for (int frame = 0; frame < kNumFrames; frame++)
     {
         args.frameCount = frame;
@@ -301,4 +317,9 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     delete[] rays;
     delete[] samples;
     delete[] hits;
+
+#if DO_CUDA_RENDER
+    freeDeviceData(args.deviceData);
+#endif // DO_CUDA_RENDER
+
 }
