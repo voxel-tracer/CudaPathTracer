@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
     Render(kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCounter);
 
     const float duration = (float) (clock() - start_time) / CLOCKS_PER_SEC;
-    printf("%.1fMrays/s\n", rayCounter / duration * 1.0e-6f);
+    printf("%.1fMrays/s, duration %.2fs\n", rayCounter / duration * 1.0e-6f, duration);
 
     write_image("image.png");
 
