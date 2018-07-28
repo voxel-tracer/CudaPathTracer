@@ -8,10 +8,11 @@
 
 struct cHit
 {
-    float3 pos;
-    float3 normal;
+    __device__ cHit() {}
+    __device__ cHit(float _t, float _id) :t(_t), id(_id) {}
+
     float t;
-    int id = -1;
+    int id;
 };
 
 struct cRay

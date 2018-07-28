@@ -76,68 +76,71 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
         if (r.done)
             continue;
 
-        Hit tmpHit, outHit;
-        float closest = tMax;
+        Hit tmpHit;
+        float closest = tMax, hitT;
+        int hitId = -1;
         for (int i = 0; i < kSphereCount; ++i)
         {
-            if (HitSphere(r, s_Spheres[i], tMin, closest, tmpHit))
+            if (HitSphere(r, s_Spheres[i], tMin, closest, hitT))
             {
                 closest = tmpHit.t;
-                outHit = tmpHit;
-                outHit.id = i;
+                hitId = i;
             }
         }
 
-        hits[rIdx] = outHit;
+        hits[rIdx] = Hit(hitT, hitId);
     }
 }
 
 static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const Hit& rec, f3& attenuation, Ray& scattered, uint32_t& state)
 {
+    const f3 hitPos = r_in.pointAt(rec.t);
+    const f3 hitNormal = s_Spheres[rec.id].normalAt(hitPos);
+
     if (mat.type == Material::Lambert)
     {
         // random point on unit sphere that is tangent to the hit point
-        f3 target = rec.pos + rec.normal + RandomUnitVector(state);
-        scattered = Ray(rec.pos, normalize(target - rec.pos));
+        f3 target = hitPos + hitNormal + RandomUnitVector(state);
+        scattered = Ray(hitPos, normalize(target - hitPos));
         attenuation = mat.albedo;
 
         return true;
     }
     else if (mat.type == Material::Metal)
     {
-        AssertUnit(r_in.dir); AssertUnit(rec.normal);
-        f3 refl = reflect(r_in.dir, rec.normal);
+        AssertUnit(r_in.dir); AssertUnit(hitNormal);
+        f3 refl = reflect(r_in.dir, hitNormal);
         // reflected ray, and random inside of sphere based on roughness
         float roughness = mat.roughness;
 #if DO_MITSUBA_COMPARE
         roughness = 0; // until we get better BRDF for metals
 #endif
-        scattered = Ray(rec.pos, normalize(refl + roughness * RandomInUnitSphere(state)));
+        scattered = Ray(hitPos, normalize(refl + roughness * RandomInUnitSphere(state)));
         attenuation = mat.albedo;
-        return dot(scattered.dir, rec.normal) > 0;
+        return dot(scattered.dir, hitNormal) > 0;
     }
     else if (mat.type == Material::Dielectric)
     {
-        AssertUnit(r_in.dir); AssertUnit(rec.normal);
+        AssertUnit(r_in.dir); AssertUnit(hitNormal);
         f3 outwardN;
         f3 rdir = r_in.dir;
-        f3 refl = reflect(rdir, rec.normal);
+        f3 refl = reflect(rdir, hitNormal);
         float nint;
         attenuation = f3(1, 1, 1);
         f3 refr;
         float reflProb;
         float cosine;
-        if (dot(rdir, rec.normal) > 0)
+        if (dot(rdir, hitNormal) > 0)
         {
-            outwardN = -rec.normal;
+            outwardN = -hitNormal;
             nint = mat.ri;
-            cosine = mat.ri * dot(rdir, rec.normal);
+            cosine = mat.ri * dot(rdir, hitNormal);
         }
         else
         {
-            outwardN = rec.normal;
+            outwardN = hitNormal;
             nint = 1.0f / mat.ri;
-            cosine = -dot(rdir, rec.normal);
+            cosine = -dot(rdir, hitNormal);
         }
         if (refract(rdir, outwardN, nint, refr))
         {
@@ -148,9 +151,9 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
             reflProb = 1;
         }
         if (RandomFloat01(state) < reflProb)
-            scattered = Ray(rec.pos, normalize(refl));
+            scattered = Ray(hitPos, normalize(refl));
         else
-            scattered = Ray(rec.pos, normalize(refr));
+            scattered = Ray(hitPos, normalize(refr));
     }
     else
     {

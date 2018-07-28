@@ -47,7 +47,7 @@ f3 RandomUnitVector(uint32_t& state)
 }
 
 
-bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, Hit& outHit)
+bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, float& outHitT)
 {
     assert(s.invRadius == 1.0f/s.radius);
     AssertUnit(r.dir);
@@ -62,17 +62,13 @@ bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, Hit& outHi
         float t = (-b - discrSq);
         if (t < tMax && t > tMin)
         {
-            outHit.pos = r.pointAt(t);
-            outHit.normal = (outHit.pos - s.center) * s.invRadius;
-            outHit.t = t;
+            outHitT = t;
             return true;
         }
         t = (-b + discrSq);
         if (t < tMax && t > tMin)
         {
-            outHit.pos = r.pointAt(t);
-            outHit.normal = (outHit.pos - s.center) * s.invRadius;
-            outHit.t = t;
+            outHitT = t;
             return true;
         }
     }

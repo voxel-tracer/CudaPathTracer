@@ -82,8 +82,8 @@ struct Ray
 
 struct Hit
 {
-    f3 pos;
-    f3 normal;
+    Hit() {}
+    Hit(float _t, int _id) :t(_t), id(_id) {}
     float t;
     int id = -1;
 };
@@ -103,6 +103,7 @@ struct Sphere
     Sphere(f3 center_, float radius_) : center(center_), radius(radius_), invRadius(0.0f) {}
     
     void UpdateDerivedData() { invRadius = 1.0f/radius; }
+    f3 normalAt(const f3& pos) const { return (pos - center) * invRadius; }
     
     f3 center;
     float radius;
@@ -110,7 +111,7 @@ struct Sphere
 };
 
 
-bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, Hit& outHit);
+bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, float& outHitT);
 
 float RandomFloat01(uint32_t& state);
 f3 RandomInUnitDisk(uint32_t& state);

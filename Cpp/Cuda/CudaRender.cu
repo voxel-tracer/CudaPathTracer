@@ -10,7 +10,7 @@ inline __device__ void AssertUnit(const float3& v)
     assert(fabsf(sqLength(v) - 1.0f) < 0.01f);
 }
 
-__device__ bool HitSphere(const cRay& r, const cSphere& s, float tMin, float tMax, cHit& outHit)
+__device__ bool HitSphere(const cRay& r, const cSphere& s, float tMin, float tMax, float& outHitT)
 {
     AssertUnit(r.dir);
     float3 oc = r.orig - s.center;
@@ -24,17 +24,13 @@ __device__ bool HitSphere(const cRay& r, const cSphere& s, float tMin, float tMa
         float t = (-b - discrSq);
         if (t < tMax && t > tMin)
         {
-            outHit.pos = r.pointAt(t);
-            outHit.normal = (outHit.pos - s.center) / s.radius;
-            outHit.t = t;
+            outHitT = t;
             return true;
         }
         t = (-b + discrSq);
         if (t < tMax && t > tMin)
         {
-            outHit.pos = r.pointAt(t);
-            outHit.normal = (outHit.pos - s.center) / s.radius;
-            outHit.t = t;
+            outHitT = t;
             return true;
         }
     }
@@ -51,19 +47,18 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
     if (r.done)
         return;
 
-    cHit tmpHit, outHit;
-    float closest = tMax;
+    int hitId = -1;
+    float closest = tMax, hitT;
     for (int i = 0; i < data.spheresCount; ++i)
     {
-        if (HitSphere(r, data.spheres[i], tMin, closest, tmpHit))
+        if (HitSphere(r, data.spheres[i], tMin, closest, hitT))
         {
-            closest = tmpHit.t;
-            outHit = tmpHit;
-            outHit.id = i;
+            closest = hitT;
+            hitId = i;
         }
     }
 
-    data.hits[rIdx] = outHit;
+    data.hits[rIdx] = cHit(closest, hitId);
 }
 
 void initDeviceData(const Sphere* spheres, const int spheresCount, const int numRays, DeviceData& data)
