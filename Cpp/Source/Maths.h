@@ -73,10 +73,12 @@ struct Ray
     Ray(const f3& orig_, const f3& dir_) : orig(orig_), dir(dir_) { AssertUnit(dir); }
 
     f3 pointAt(float t) const { return orig + dir * t; }
+    bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
+
+    void setDone() { dir = f3(0, 0, 0); }
     
     f3 orig;
     f3 dir;
-    bool done = false;
 };
 
 

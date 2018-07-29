@@ -44,7 +44,7 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
         return;
 
     const cRay& r = data.rays[rIdx];
-    if (r.done)
+    if (r.isDone())
         return;
 
     int hitId = -1;

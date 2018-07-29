@@ -18,10 +18,10 @@ struct cHit
 struct cRay
 {
     __device__ float3 pointAt(float t) const { return orig + dir * t; }
+    __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
 
     float3 orig;
     float3 dir;
-    bool done = false;
 };
 
 struct cSphere

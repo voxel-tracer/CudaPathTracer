@@ -73,7 +73,7 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
     for (int rIdx = 0; rIdx < num_rays; rIdx++)
     {
         const Ray& r = rays[rIdx];
-        if (r.done)
+        if (r.isDone())
             continue;
 
         Hit tmpHit;
@@ -182,7 +182,7 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
         for (int rIdx = 0; rIdx < data.numRays; rIdx++)
         {
             const Ray& r = data.rays[rIdx];
-            if (r.done)
+            if (r.isDone())
                 continue;
 
             const Hit& rec = data.hits[rIdx];
@@ -202,7 +202,7 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
                 }
                 else
                 {
-                    data.rays[rIdx].done = true;
+                    data.rays[rIdx].setDone();
                 }
             }
             else
@@ -214,7 +214,7 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
                 f3 unitDir = r.dir;
                 float t = 0.5f*(unitDir.y + 1.0f);
                 sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
-                data.rays[rIdx].done = true;
+                data.rays[rIdx].setDone();
 #endif
             }
         }
