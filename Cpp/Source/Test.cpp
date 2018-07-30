@@ -73,8 +73,6 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
     for (int rIdx = 0; rIdx < num_rays; rIdx++)
     {
         const Ray& r = rays[rIdx];
-        if (r.isDone())
-            continue;
 
         float closest = tMax, hitT;
         int hitId = -1;
@@ -164,28 +162,31 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
 
 static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_t& state)
 {
-    for (int rIdx = 0; rIdx < data.numRays; rIdx++)
+    int numRays = data.numRays;
+    int* sIndices = new int[numRays];
+    for (int rIdx = 0; rIdx < numRays; rIdx++)
     {
         Sample& sample = data.samples[rIdx];
         sample.color = f3(0, 0, 0);
         sample.attenuation = f3(1, 1, 1);
+        sIndices[rIdx] = rIdx;
     }
 
-    for (int depth = 0; depth <= kMaxDepth; depth++)
+    for (int depth = 0; depth <= kMaxDepth && numRays > 0; depth++)
     {
 #if DO_CUDA_RENDER
         HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
 #else
-        HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
+        HitWorld(data.rays, numRays, kMinT, kMaxT, data.hits);
 #endif
-        for (int rIdx = 0; rIdx < data.numRays; rIdx++)
+        int wIdx = 0;
+        for (int rIdx = 0; rIdx < numRays; rIdx++)
         {
             const Ray& r = data.rays[rIdx];
-            if (r.isDone())
-                continue;
+            const int sIdx = sIndices[rIdx];
 
             const Hit& rec = data.hits[rIdx];
-            Sample& sample = data.samples[rIdx];
+            Sample& sample = data.samples[sIdx];
 
             ++inoutRayCount;
             if (rec.id >= 0)
@@ -197,11 +198,9 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
                 if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, rec, local_attenuation, scattered, state))
                 {
                     sample.attenuation *= local_attenuation;
-                    data.rays[rIdx] = scattered;
-                }
-                else
-                {
-                    data.rays[rIdx].setDone();
+                    data.rays[wIdx] = scattered;
+                    sIndices[wIdx] = sIdx;
+                    wIdx++;
                 }
             }
             else
@@ -213,11 +212,14 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
                 f3 unitDir = r.dir;
                 float t = 0.5f*(unitDir.y + 1.0f);
                 sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
-                data.rays[rIdx].setDone();
 #endif
             }
         }
+
+        numRays = wIdx;
     }
+
+    delete[] sIndices;
 }
 
 static int TracePixels(RendererData data)
