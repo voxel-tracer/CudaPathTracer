@@ -76,14 +76,13 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
         if (r.isDone())
             continue;
 
-        Hit tmpHit;
         float closest = tMax, hitT;
         int hitId = -1;
         for (int i = 0; i < kSphereCount; ++i)
         {
             if (HitSphere(r, s_Spheres[i], tMin, closest, hitT))
             {
-                closest = tmpHit.t;
+                closest = hitT;
                 hitId = i;
             }
         }
