@@ -175,7 +175,7 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
     for (int depth = 0; depth <= kMaxDepth && numRays > 0; depth++)
     {
 #if DO_CUDA_RENDER
-        HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
+        HitWorldDevice(data.rays, numRays, kMinT, kMaxT, data.hits, data.deviceData);
 #else
         HitWorld(data.rays, numRays, kMinT, kMaxT, data.hits);
 #endif

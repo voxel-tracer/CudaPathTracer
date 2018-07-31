@@ -18,7 +18,6 @@ struct cHit
 struct cRay
 {
     __device__ float3 pointAt(float t) const { return orig + dir * t; }
-    __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
 
     float3 orig;
     float3 dir;
@@ -42,6 +41,6 @@ struct DeviceData
 
 void initDeviceData(const Sphere* spheres, const int spheresCount, const int numRays, DeviceData& data);
 
-void HitWorldDevice(const Ray* rays, float tMin, float tMax, Hit* hits, DeviceData data);
+void HitWorldDevice(const Ray* rays, const int numRays, float tMin, float tMax, Hit* hits, DeviceData data);
 
 void freeDeviceData(const DeviceData& data);

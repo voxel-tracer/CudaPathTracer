@@ -37,15 +37,13 @@ __device__ bool HitSphere(const cRay& r, const cSphere& s, float tMin, float tMa
     return false;
 }
 
-__global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
+__global__ void HitWorldKernel(const DeviceData data, const int numRays, const float tMin, const float tMax)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
+    if (rIdx >= numRays)
         return;
 
     const cRay& r = data.rays[rIdx];
-    if (r.isDone())
-        return;
 
     int hitId = -1;
     float closest = tMax, hitT;
@@ -75,19 +73,19 @@ void initDeviceData(const Sphere* spheres, const int spheresCount, const int num
     cudaMemcpy(data.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
 }
 
-void HitWorldDevice(const Ray* rays, float tMin, float tMax, Hit* hits, DeviceData data)
+void HitWorldDevice(const Ray* rays, const int numRays, float tMin, float tMax, Hit* hits, DeviceData data)
 {
     // copy rays to device
-    cudaMemcpy(data.rays, rays, data.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
+    cudaMemcpy(data.rays, rays, numRays * sizeof(cRay), cudaMemcpyHostToDevice);
 
     // call kernel
     const int threadsPerBlock = 1024;
     const int blocksPerGrid = ceilf((float)data.numRays / threadsPerBlock);
 
-    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >>> (data, tMin, tMax);
+    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >>> (data, numRays, tMin, tMax);
 
     // copy hits to host
-    cudaMemcpy(hits, data.hits, data.numRays * sizeof(cHit), cudaMemcpyDeviceToHost);
+    cudaMemcpy(hits, data.hits, numRays * sizeof(cHit), cudaMemcpyDeviceToHost);
 }
 
 
