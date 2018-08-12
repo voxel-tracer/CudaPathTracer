@@ -91,7 +91,7 @@ void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* 
     }
 }
 
-static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const Hit& rec, f3& attenuation, Ray& scattered, uint32_t& state)
+bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const Hit& rec, f3& attenuation, Ray& scattered, uint32_t& state)
 {
     const f3 hitPos = r_in.pointAt(rec.t);
     const f3 hitNormal = s_Spheres[rec.id].normalAt(hitPos);
@@ -111,9 +111,6 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
         f3 refl = reflect(r_in.dir, hitNormal);
         // reflected ray, and random inside of sphere based on roughness
         float roughness = mat.roughness;
-#if DO_MITSUBA_COMPARE
-        roughness = 0; // until we get better BRDF for metals
-#endif
         scattered = Ray(hitPos, normalize(refl + roughness * RandomInUnitSphere(state)));
         attenuation = mat.albedo;
         return dot(scattered.dir, hitNormal) > 0;
@@ -162,7 +159,53 @@ static bool ScatterNoLightSampling(const Material& mat, const Ray& r_in, const H
     return true;
 }
 
-static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_t& state)
+void Scatter(const RendererData& data, const int depth, int& inoutRayCount)
+{
+    for (int rIdx = 0; rIdx < data.numRays; rIdx++)
+    {
+        const Ray& r = data.rays[rIdx];
+        if (r.isDone())
+            continue;
+
+        uint32_t state = (wang_hash(rIdx) + (data.frameCount*kMaxDepth + depth) * 101141101) * 336343633;
+
+        const Hit& hit = data.hits[rIdx];
+        Sample& sample = data.samples[rIdx];
+        if (depth == 0)
+        {
+            sample.color = f3(0, 0, 0);
+            sample.attenuation = f3(1, 1, 1);
+        }
+
+        ++inoutRayCount;
+        if (hit.id >= 0)
+        {
+            Ray scattered;
+            const Material& mat = s_SphereMats[hit.id];
+            f3 local_attenuation;
+            sample.color += mat.emissive * sample.attenuation;
+            if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, hit, local_attenuation, scattered, state))
+            {
+                sample.attenuation *= local_attenuation;
+                data.rays[rIdx] = scattered;
+            }
+            else
+            {
+                data.rays[rIdx].setDone();
+            }
+        }
+        else
+        {
+            // sky
+            f3 unitDir = r.dir;
+            float t = 0.5f*(unitDir.y + 1.0f);
+            sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
+            data.rays[rIdx].setDone();
+        }
+    }
+}
+
+static void TraceIterative(const RendererData& data, int& inoutRayCount)
 {
     for (int rIdx = 0; rIdx < data.numRays; rIdx++)
     {
@@ -178,45 +221,7 @@ static void TraceIterative(const RendererData& data, int& inoutRayCount, uint32_
 #else
         HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
 #endif
-        for (int rIdx = 0; rIdx < data.numRays; rIdx++)
-        {
-            const Ray& r = data.rays[rIdx];
-            if (r.isDone())
-                continue;
-
-            const Hit& rec = data.hits[rIdx];
-            Sample& sample = data.samples[rIdx];
-
-            ++inoutRayCount;
-            if (rec.id >= 0)
-            {
-                Ray scattered;
-                const Material& mat = s_SphereMats[rec.id];
-                f3 local_attenuation;
-                sample.color += mat.emissive * sample.attenuation;
-                if (depth < kMaxDepth && ScatterNoLightSampling(mat, r, rec, local_attenuation, scattered, state))
-                {
-                    sample.attenuation *= local_attenuation;
-                    data.rays[rIdx] = scattered;
-                }
-                else
-                {
-                    data.rays[rIdx].setDone();
-                }
-            }
-            else
-            {
-                // sky
-#if DO_MITSUBA_COMPARE
-                sample.color += sample.attenuation * f3(0.15f, 0.21f, 0.3f); // easier compare with Mitsuba's constant environment light
-#else
-                f3 unitDir = r.dir;
-                float t = 0.5f*(unitDir.y + 1.0f);
-                sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
-                data.rays[rIdx].setDone();
-#endif
-            }
-        }
+        Scatter(data, depth, inoutRayCount);
     }
 }
 
@@ -248,7 +253,7 @@ static int TracePixels(RendererData data)
     }
 
     // trace all samples through the scene
-    TraceIterative(data, rayCount, state);
+    TraceIterative(data, rayCount);
 
     // compute cumulated color for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -279,11 +284,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     f3 lookfrom(0, 2, 3);
     f3 lookat(0, 0, 0);
     float distToFocus = 3;
-#if DO_MITSUBA_COMPARE
-    float aperture = 0.0f;
-#else
     float aperture = 0.1f;
-#endif
 
     for (int i = 0; i < kSphereCount; ++i)
         s_Spheres[i].UpdateDerivedData();

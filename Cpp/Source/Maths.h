@@ -29,6 +29,19 @@ inline void AssertUnit(const f3& v)
     assert(fabsf(v.sqLength() - 1.0f) < 0.01f);
 }
 
+/*
+ * based off http://www.reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
+ */
+inline uint32_t wang_hash(uint32_t seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
 inline f3 operator+(const f3& a, const f3& b) { return f3(a.x+b.x,a.y+b.y,a.z+b.z); }
 inline f3 operator-(const f3& a, const f3& b) { return f3(a.x-b.x,a.y-b.y,a.z-b.z); }
 inline f3 operator*(const f3& a, const f3& b) { return f3(a.x*b.x,a.y*b.y,a.z*b.z); }
