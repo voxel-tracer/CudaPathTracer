@@ -177,7 +177,6 @@ void Scatter(const RendererData& data, const int depth, int& inoutRayCount)
             sample.attenuation = f3(1, 1, 1);
         }
 
-        ++inoutRayCount;
         if (hit.id >= 0)
         {
             Ray scattered;
@@ -202,26 +201,8 @@ void Scatter(const RendererData& data, const int depth, int& inoutRayCount)
             sample.color += sample.attenuation * ((1.0f - t)*f3(1.0f, 1.0f, 1.0f) + t * f3(0.5f, 0.7f, 1.0f)) * 0.3f;
             data.rays[rIdx].setDone();
         }
-    }
-}
 
-static void TraceIterative(const RendererData& data, int& inoutRayCount)
-{
-    for (int rIdx = 0; rIdx < data.numRays; rIdx++)
-    {
-        Sample& sample = data.samples[rIdx];
-        sample.color = f3(0, 0, 0);
-        sample.attenuation = f3(1, 1, 1);
-    }
-
-    for (int depth = 0; depth <= kMaxDepth; depth++)
-    {
-#if DO_CUDA_RENDER
-        HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
-#else
-        HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
-#endif
-        Scatter(data, depth, inoutRayCount);
+        ++inoutRayCount;
     }
 }
 
@@ -253,7 +234,15 @@ static int TracePixels(RendererData data)
     }
 
     // trace all samples through the scene
-    TraceIterative(data, rayCount);
+    for (int depth = 0; depth <= kMaxDepth; depth++)
+    {
+#if DO_CUDA_RENDER
+        HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
+#else
+        HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
+#endif
+        Scatter(data, depth, rayCount);
+    }
 
     // compute cumulated color for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
