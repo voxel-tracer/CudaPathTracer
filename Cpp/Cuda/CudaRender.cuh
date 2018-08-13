@@ -17,6 +17,9 @@ struct cHit
 
 struct cRay
 {
+    __device__ cRay() {}
+    __device__ cRay(const float3& orig_, const float3& dir_) : orig(orig_), dir(dir_) {}
+
     __device__ float3 pointAt(float t) const { return orig + dir * t; }
     __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
 
@@ -29,6 +32,8 @@ struct cSphere
     float3 center;
     float radius;
     float _not_used;
+
+    __device__ float3 normalAt(const float3& pos) const { return (pos - center) / radius; }
 };
 
 struct DeviceData
