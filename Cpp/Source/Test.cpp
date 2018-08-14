@@ -23,16 +23,6 @@ static Sphere s_Spheres[] =
 };
 const int kSphereCount = sizeof(s_Spheres) / sizeof(s_Spheres[0]);
 
-struct Material
-{
-    enum Type { Lambert, Metal, Dielectric };
-    Type type;
-    f3 albedo;
-    f3 emissive;
-    float roughness;
-    float ri;
-};
-
 static Material s_SphereMats[kSphereCount] =
 {
     { Material::Lambert, f3(0.8f, 0.8f, 0.8f), f3(0,0,0), 0, 0, },
@@ -50,7 +40,6 @@ static Camera s_Cam;
 
 const float kMinT = 0.001f;
 const float kMaxT = 1.0e7f;
-const int kMaxDepth = 10;
 
 struct RendererData
 {
@@ -233,16 +222,24 @@ static int TracePixels(RendererData data)
         }
     }
 
+#if DO_CUDA_RENDER
+    deviceStartFrame(data.rays, data.frameCount, data.deviceData);
+#endif
+
     // trace all samples through the scene
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
 #if DO_CUDA_RENDER
-        HitWorldDevice(data.rays, kMinT, kMaxT, data.hits, data.deviceData);
+        deviceRenderFrame(kMinT, kMaxT, depth, data.deviceData);
 #else
         HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
-#endif
         Scatter(data, depth, rayCount);
+#endif
     }
+
+#if DO_CUDA_RENDER
+    deviceEndFrame(data.samples, data.deviceData);
+#endif
 
     // compute cumulated color for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -305,7 +302,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.numRays = numRays;
 
 #if DO_CUDA_RENDER
-    initDeviceData(s_Spheres, kSphereCount, numRays, args.deviceData);
+    deviceInitData(s_Spheres, s_SphereMats, kSphereCount, numRays, args.deviceData);
 #endif // DO_CUDA_RENDER
 
     for (int frame = 0; frame < kNumFrames; frame++)
@@ -324,7 +321,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     delete[] samples;
 
 #if DO_CUDA_RENDER
-    freeDeviceData(args.deviceData);
+    deviceFreeData(args.deviceData);
 #endif // DO_CUDA_RENDER
 
 }

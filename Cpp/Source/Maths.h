@@ -125,6 +125,15 @@ struct Sphere
     float invRadius;
 };
 
+struct Material
+{
+    enum Type { Lambert, Metal, Dielectric };
+    Type type;
+    f3 albedo;
+    f3 emissive;
+    float roughness;
+    float ri;
+};
 
 bool HitSphere(const Ray& r, const Sphere& s, float tMin, float tMax, float& outHitT);
 

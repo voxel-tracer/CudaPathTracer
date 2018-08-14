@@ -22,6 +22,7 @@ struct cRay
 
     __device__ float3 pointAt(float t) const { return orig + dir * t; }
     __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
+    __device__ void setDone() { dir = make_float3(0); }
 
     float3 orig;
     float3 dir;
@@ -36,17 +37,39 @@ struct cSphere
     __device__ float3 normalAt(const float3& pos) const { return (pos - center) / radius; }
 };
 
+struct cMaterial
+{
+    enum Type { Lambert, Metal, Dielectric };
+    Type type;
+    float3 albedo;
+    float3 emissive;
+    float roughness;
+    float ri;
+};
+
+struct cSample
+{
+    float3 color;
+    float3 attenuation;
+};
+
+
 struct DeviceData
 {
     cRay* rays;
     cHit* hits;
+    cSample* samples;
     cSphere* spheres;
-    int numRays;
-    int spheresCount;
+    cMaterial* materials;
+    uint numRays;
+    uint spheresCount;
+    uint frame;
 };
 
-void initDeviceData(const Sphere* spheres, const int spheresCount, const int numRays, DeviceData& data);
+void deviceInitData(const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, DeviceData& data);
 
-void HitWorldDevice(const Ray* rays, float tMin, float tMax, Hit* hits, DeviceData data);
+void deviceStartFrame(const Ray* rays, const uint frame, DeviceData& data);
+void deviceRenderFrame(const float tMin, const float tMax, const uint depth, const DeviceData data);
+void deviceEndFrame(Sample* samples, const DeviceData& data);
 
-void freeDeviceData(const DeviceData& data);
+void deviceFreeData(const DeviceData& data);

@@ -1,14 +1,5 @@
 #include "CudaRender.cuh"
-
-struct cMaterial
-{
-    enum Type { Lambert, Metal, Dielectric };
-    Type type;
-    float3 albedo;
-    float3 emissive;
-    float roughness;
-    float ri;
-};
+#include "../Source/Config.h"
 
 __device__ float sqLength(const float3& v)
 {
@@ -71,43 +62,6 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
     data.hits[rIdx] = cHit(closest, hitId);
 }
 
-void initDeviceData(const Sphere* spheres, const int spheresCount, const int numRays, DeviceData& data)
-{
-    data.numRays = numRays;
-    data.spheresCount = spheresCount;
-
-    // allocate device memory
-    cudaMalloc((void**)&data.spheres, spheresCount * sizeof(cSphere));
-    cudaMalloc((void**)&data.rays, numRays * sizeof(cRay));
-    cudaMalloc((void**)&data.hits, numRays * sizeof(cHit));
-
-    // copy spheres to device
-    cudaMemcpy(data.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
-}
-
-void HitWorldDevice(const Ray* rays, float tMin, float tMax, Hit* hits, DeviceData data)
-{
-    // copy rays to device
-    cudaMemcpy(data.rays, rays, data.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
-
-    // call kernel
-    const int threadsPerBlock = 1024;
-    const int blocksPerGrid = ceilf((float)data.numRays / threadsPerBlock);
-
-    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >>> (data, tMin, tMax);
-
-    // copy hits to host
-    cudaMemcpy(hits, data.hits, data.numRays * sizeof(cHit), cudaMemcpyDeviceToHost);
-}
-
-
-void freeDeviceData(const DeviceData& data)
-{
-    cudaFree(data.spheres);
-    cudaFree(data.rays);
-    cudaFree(data.hits);
-}
-
 __device__ uint cXorShift32(uint& state)
 {
     uint x = state;
@@ -137,9 +91,22 @@ __device__ float3 cRandomInUnitSphere(uint& state)
 {
     float3 p;
     do {
-        p = 2.0*make_float3(cRandomFloat01(state) - 1, cRandomFloat01(state) - 1, cRandomFloat01(state) - 1);
+        p = make_float3(2*cRandomFloat01(state) - 1, 2*cRandomFloat01(state) - 1, 2*cRandomFloat01(state) - 1);
     } while (sqLength(p) >= 1.0);
     return p;
+}
+
+/*
+* based off http://www.reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
+*/
+__device__ uint cWang_hash(uint seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
 }
 
 __device__ bool refract(const float3& v, const float3& n, float nint, float3& outRefracted)
@@ -228,4 +195,97 @@ __device__ bool ScatterNoLightSampling(const DeviceData& data, const cMaterial& 
         return false;
     }
     return true;
+}
+
+__global__ void ScatterKernel(const DeviceData data, const uint depth)
+{
+    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (rIdx >= data.numRays)
+        return;
+
+    const cRay& r = data.rays[rIdx];
+    if (r.isDone())
+        return;
+
+    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
+
+    const cHit& hit = data.hits[rIdx];
+    cSample& sample = data.samples[rIdx];
+    if (depth == 0)
+    {
+        sample.color = make_float3(0);
+        sample.attenuation = make_float3(1);
+    }
+
+    if (hit.id >= 0)
+    {
+        cRay scattered;
+        const cMaterial& mat = data.materials[hit.id];
+        float3 local_attenuation;
+        sample.color += mat.emissive * sample.attenuation;
+        if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit, local_attenuation, scattered, state))
+        {
+            sample.attenuation *= local_attenuation;
+            data.rays[rIdx] = scattered;
+        }
+        else
+        {
+            data.rays[rIdx].setDone();
+        }
+    }
+    else
+    {
+        // sky
+        float3 unitDir = r.dir;
+        float t = 0.5f*(unitDir.y + 1.0f);
+        sample.color += sample.attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+        data.rays[rIdx].setDone();
+    }
+}
+
+void deviceInitData(const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, DeviceData& data)
+{
+    data.numRays = numRays;
+    data.spheresCount = spheresCount;
+
+    // allocate device memory
+    cudaMalloc((void**)&data.spheres, spheresCount * sizeof(cSphere));
+    cudaMalloc((void**)&data.materials, spheresCount * sizeof(cMaterial));
+    cudaMalloc((void**)&data.rays, numRays * sizeof(cRay));
+    cudaMalloc((void**)&data.hits, numRays * sizeof(cHit));
+    cudaMalloc((void**)&data.samples, numRays * sizeof(cSample));
+
+    // copy spheres and materials to device
+    cudaMemcpy(data.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
+    cudaMemcpy(data.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
+}
+
+void deviceStartFrame(const Ray* rays, const uint frame, DeviceData& data) {
+    data.frame = frame;
+    // copy rays to device
+    cudaMemcpy(data.rays, rays, data.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
+}
+
+void deviceRenderFrame(const float tMin, const float tMax, const uint depth, const DeviceData data)
+{
+    // call kernel
+    const int threadsPerBlock = 1024;
+    const int blocksPerGrid = ceilf((float)data.numRays / threadsPerBlock);
+
+    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >> > (data, tMin, tMax);
+    ScatterKernel <<<blocksPerGrid, threadsPerBlock >> > (data, depth);
+}
+
+void deviceEndFrame(Sample* samples, const DeviceData& data)
+{
+    // copy samples to host
+    cudaMemcpy(samples, data.samples, data.numRays * sizeof(cSample), cudaMemcpyDeviceToHost);
+}
+
+void deviceFreeData(const DeviceData& data)
+{
+    cudaFree(data.spheres);
+    cudaFree(data.rays);
+    cudaFree(data.hits);
+    cudaFree(data.samples);
 }
