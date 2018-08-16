@@ -51,9 +51,6 @@ struct RendererData
     Ray* rays;
     Hit* hits;
     Sample* samples;
-#if DO_CUDA_RENDER
-    DeviceData deviceData;
-#endif // DO_CUDA_RENDER
 };
 
 
@@ -205,8 +202,6 @@ static int TracePixels(RendererData data)
     lerpFac = 0;
 #endif
     int rayCount = 0;
-    uint32_t state = (data.frameCount * 26699) | 1;
-
 
     // generate camera rays for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
@@ -215,6 +210,8 @@ static int TracePixels(RendererData data)
         {
             for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
             {
+                uint32_t state = ((wang_hash(rIdx) + (data.frameCount*kMaxDepth) * 101141101) * 336343633) | 1;
+
                 float u = float(x + RandomFloat01(state)) * invWidth;
                 float v = float(y + RandomFloat01(state)) * invHeight;
                 data.rays[rIdx] = data.cam->GetRay(u, v, state);
@@ -223,14 +220,14 @@ static int TracePixels(RendererData data)
     }
 
 #if DO_CUDA_RENDER
-    deviceStartFrame(data.rays, data.frameCount, data.deviceData);
+    deviceStartFrame(data.rays, data.frameCount);
 #endif
 
     // trace all samples through the scene
     for (int depth = 0; depth <= kMaxDepth; depth++)
     {
 #if DO_CUDA_RENDER
-        deviceRenderFrame(kMinT, kMaxT, depth, data.deviceData);
+        deviceRenderFrame(kMinT, kMaxT, depth);
 #else
         HitWorld(data.rays, data.numRays, kMinT, kMaxT, data.hits);
         Scatter(data, depth, rayCount);
@@ -238,7 +235,7 @@ static int TracePixels(RendererData data)
     }
 
 #if DO_CUDA_RENDER
-    deviceEndFrame(data.samples, data.deviceData);
+    deviceEndFrame(data.samples);
 #endif
 
     // compute cumulated color for all samples
@@ -302,7 +299,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.numRays = numRays;
 
 #if DO_CUDA_RENDER
-    deviceInitData(s_Spheres, s_SphereMats, kSphereCount, numRays, args.deviceData);
+    deviceInitData(s_Spheres, s_SphereMats, kSphereCount, numRays);
 #endif // DO_CUDA_RENDER
 
     for (int frame = 0; frame < kNumFrames; frame++)
@@ -321,7 +318,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     delete[] samples;
 
 #if DO_CUDA_RENDER
-    deviceFreeData(args.deviceData);
+    deviceFreeData();
 #endif // DO_CUDA_RENDER
 
 }

@@ -1,6 +1,67 @@
 #include "CudaRender.cuh"
 #include "../Source/Config.h"
 
+struct cHit
+{
+    __device__ cHit() {}
+    __device__ cHit(float _t, float _id) :t(_t), id(_id) {}
+
+    float t;
+    int id;
+};
+
+struct cRay
+{
+    __device__ cRay() {}
+    __device__ cRay(const float3& orig_, const float3& dir_) : orig(orig_), dir(dir_) {}
+
+    __device__ float3 pointAt(float t) const { return orig + dir * t; }
+    __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
+    __device__ void setDone() { dir = make_float3(0); }
+
+    float3 orig;
+    float3 dir;
+};
+
+struct cSphere
+{
+    float3 center;
+    float radius;
+    float _not_used;
+
+    __device__ float3 normalAt(const float3& pos) const { return (pos - center) / radius; }
+};
+
+struct cMaterial
+{
+    enum Type { Lambert, Metal, Dielectric };
+    Type type;
+    float3 albedo;
+    float3 emissive;
+    float roughness;
+    float ri;
+};
+
+struct cSample
+{
+    float3 color;
+    float3 attenuation;
+};
+
+struct DeviceData
+{
+    cRay* rays;
+    cHit* hits;
+    cSample* samples;
+    cSphere* spheres;
+    cMaterial* materials;
+    uint numRays;
+    uint spheresCount;
+    uint frame;
+};
+
+DeviceData deviceData;
+
 __device__ float sqLength(const float3& v)
 {
     return v.x*v.x + v.y*v.y + v.z*v.z;
@@ -243,49 +304,49 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     }
 }
 
-void deviceInitData(const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, DeviceData& data)
+void deviceInitData(const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
 {
-    data.numRays = numRays;
-    data.spheresCount = spheresCount;
+    deviceData.numRays = numRays;
+    deviceData.spheresCount = spheresCount;
 
     // allocate device memory
-    cudaMalloc((void**)&data.spheres, spheresCount * sizeof(cSphere));
-    cudaMalloc((void**)&data.materials, spheresCount * sizeof(cMaterial));
-    cudaMalloc((void**)&data.rays, numRays * sizeof(cRay));
-    cudaMalloc((void**)&data.hits, numRays * sizeof(cHit));
-    cudaMalloc((void**)&data.samples, numRays * sizeof(cSample));
+    cudaMalloc((void**)&deviceData.spheres, spheresCount * sizeof(cSphere));
+    cudaMalloc((void**)&deviceData.materials, spheresCount * sizeof(cMaterial));
+    cudaMalloc((void**)&deviceData.rays, numRays * sizeof(cRay));
+    cudaMalloc((void**)&deviceData.hits, numRays * sizeof(cHit));
+    cudaMalloc((void**)&deviceData.samples, numRays * sizeof(cSample));
 
     // copy spheres and materials to device
-    cudaMemcpy(data.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
-    cudaMemcpy(data.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceData.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceData.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
 }
 
-void deviceStartFrame(const Ray* rays, const uint frame, DeviceData& data) {
-    data.frame = frame;
+void deviceStartFrame(const Ray* rays, const uint frame) {
+    deviceData.frame = frame;
     // copy rays to device
-    cudaMemcpy(data.rays, rays, data.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceData.rays, rays, deviceData.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
 }
 
-void deviceRenderFrame(const float tMin, const float tMax, const uint depth, const DeviceData data)
+void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
 {
     // call kernel
     const int threadsPerBlock = 1024;
-    const int blocksPerGrid = ceilf((float)data.numRays / threadsPerBlock);
+    const int blocksPerGrid = ceilf((float)deviceData.numRays / threadsPerBlock);
 
-    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >> > (data, tMin, tMax);
-    ScatterKernel <<<blocksPerGrid, threadsPerBlock >> > (data, depth);
+    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >> > (deviceData, tMin, tMax);
+    ScatterKernel <<<blocksPerGrid, threadsPerBlock >> > (deviceData, depth);
 }
 
-void deviceEndFrame(Sample* samples, const DeviceData& data)
+void deviceEndFrame(Sample* samples)
 {
     // copy samples to host
-    cudaMemcpy(samples, data.samples, data.numRays * sizeof(cSample), cudaMemcpyDeviceToHost);
+    cudaMemcpy(samples, deviceData.samples, deviceData.numRays * sizeof(cSample), cudaMemcpyDeviceToHost);
 }
 
-void deviceFreeData(const DeviceData& data)
+void deviceFreeData()
 {
-    cudaFree(data.spheres);
-    cudaFree(data.rays);
-    cudaFree(data.hits);
-    cudaFree(data.samples);
+    cudaFree(deviceData.spheres);
+    cudaFree(deviceData.rays);
+    cudaFree(deviceData.hits);
+    cudaFree(deviceData.samples);
 }
