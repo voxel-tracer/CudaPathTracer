@@ -1,6 +1,8 @@
 #include "CudaRender.cuh"
 #include "../Source/Config.h"
 
+__device__ float3 cRandomInUnitDisk(uint& state);
+
 struct cHit
 {
     __device__ cHit() {}
@@ -48,6 +50,23 @@ struct cSample
     float3 attenuation;
 };
 
+struct cCamera
+{
+    __device__ cRay GetRay(float s, float t, uint32_t& state) const
+    {
+        float3 rd = lensRadius * cRandomInUnitDisk(state);
+        float3 offset = u * rd.x + v * rd.y;
+        return cRay(origin + offset, normalize(lowerLeftCorner + s * horizontal + t * vertical - origin - offset));
+    }
+
+    float3 origin;
+    float3 lowerLeftCorner;
+    float3 horizontal;
+    float3 vertical;
+    float3 u, v, w;
+    float lensRadius;
+};
+
 struct DeviceData
 {
     cRay* rays;
@@ -55,9 +74,12 @@ struct DeviceData
     cSample* samples;
     cSphere* spheres;
     cMaterial* materials;
+    cCamera* camera;
     uint numRays;
     uint spheresCount;
     uint frame;
+    uint width;
+    uint height;
 };
 
 DeviceData deviceData;
@@ -136,6 +158,20 @@ __device__ uint cXorShift32(uint& state)
 __device__ float cRandomFloat01(uint& state)
 {
     return (cXorShift32(state) & 0xFFFFFF) / 16777216.0f;
+}
+
+__device__ float3 cRandomInUnitDisk(uint& state)
+{
+    float3 p;
+    do
+    {
+        p = make_float3(2 * cRandomFloat01(state) - 1, 2 * cRandomFloat01(state) - 1, 0);
+    } while (dot(p, p) >= 1.0);
+    return p;
+}
+
+float3 make_float3(const f3 f) {
+    return make_float3(f.x, f.y, f.z);
 }
 
 __device__ float3 cRandomUnitVector(uint& state)
@@ -304,10 +340,29 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     }
 }
 
-void deviceInitData(const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
+__global__ void generateRays(const DeviceData data)
+{
+    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (rIdx >= data.numRays)
+        return;
+
+    const uint w = data.width*DO_SAMPLES_PER_PIXEL;
+    const uint y = rIdx / w;
+    const uint x = (rIdx % w) / DO_SAMPLES_PER_PIXEL;
+    uint state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
+
+    float u = float(x + cRandomFloat01(state)) / data.width;
+    float v = float(y + cRandomFloat01(state)) / data.height;
+    data.rays[rIdx] = data.camera->GetRay(u, v, state);
+
+}
+
+void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
 {
     deviceData.numRays = numRays;
     deviceData.spheresCount = spheresCount;
+    deviceData.width = width;
+    deviceData.height = height;
 
     // allocate device memory
     cudaMalloc((void**)&deviceData.spheres, spheresCount * sizeof(cSphere));
@@ -315,16 +370,22 @@ void deviceInitData(const Sphere* spheres, const Material* materials, const int 
     cudaMalloc((void**)&deviceData.rays, numRays * sizeof(cRay));
     cudaMalloc((void**)&deviceData.hits, numRays * sizeof(cHit));
     cudaMalloc((void**)&deviceData.samples, numRays * sizeof(cSample));
+    cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
     // copy spheres and materials to device
     cudaMemcpy(deviceData.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
     cudaMemcpy(deviceData.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
 }
 
-void deviceStartFrame(const Ray* rays, const uint frame) {
+void deviceStartFrame(const uint frame) {
     deviceData.frame = frame;
-    // copy rays to device
-    cudaMemcpy(deviceData.rays, rays, deviceData.numRays * sizeof(cRay), cudaMemcpyHostToDevice);
+
+    // call kernel
+    const int threadsPerBlock = 1024;
+    const int blocksPerGrid = ceilf((float)deviceData.numRays / threadsPerBlock);
+    generateRays <<<blocksPerGrid, threadsPerBlock >>> (deviceData);
 }
 
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
@@ -349,4 +410,5 @@ void deviceFreeData()
     cudaFree(deviceData.rays);
     cudaFree(deviceData.hits);
     cudaFree(deviceData.samples);
+    cudaFree(deviceData.camera);
 }

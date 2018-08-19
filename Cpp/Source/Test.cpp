@@ -48,12 +48,15 @@ struct RendererData
     float* backbuffer;
     Camera* cam;
     int numRays;
+
+#if DO_CUDA_RENDER == 0
     Ray* rays;
     Hit* hits;
+#endif // !DO_CUDA_RENDER
     Sample* samples;
 };
 
-
+#if DO_CUDA_RENDER == 0
 void HitWorld(const Ray* rays, const int num_rays, float tMin, float tMax, Hit* hits)
 {
     for (int rIdx = 0; rIdx < num_rays; rIdx++)
@@ -191,6 +194,8 @@ void Scatter(const RendererData& data, const int depth, int& inoutRayCount)
         ++inoutRayCount;
     }
 }
+#endif // !DO_CUDA_RENDER
+
 
 static int TracePixels(RendererData data)
 {
@@ -203,6 +208,9 @@ static int TracePixels(RendererData data)
 #endif
     int rayCount = 0;
 
+#if DO_CUDA_RENDER
+    deviceStartFrame(data.frameCount);
+#else
     // generate camera rays for all samples
     for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
     {
@@ -218,9 +226,6 @@ static int TracePixels(RendererData data)
             }
         }
     }
-
-#if DO_CUDA_RENDER
-    deviceStartFrame(data.rays, data.frameCount);
 #endif
 
     // trace all samples through the scene
@@ -276,14 +281,9 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
 
     // let's allocate a few arrays needed by the renderer
     int numRays = screenWidth * screenHeight * DO_SAMPLES_PER_PIXEL;
-    Ray* rays = NULL;
-    Hit* hits = NULL;
-#if DO_CUDA_RENDER
-    cudaMallocHost((void**)&rays, numRays * sizeof(Ray));
-    cudaMallocHost((void**)&hits, numRays * sizeof(Hit));
-#else
-    rays = new Ray[numRays];
-    hits = new Hit[numRays];
+#if DO_CUDA_RENDER == 0
+    Ray* rays = new Ray[numRays];
+    Hit* hits = new Hit[numRays];
 #endif
 
     Sample* samples = new Sample[numRays];
@@ -293,13 +293,15 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.screenHeight = screenHeight;
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
-    args.rays = rays;
     args.samples = samples;
+#if DO_CUDA_RENDER == 0
+    args.rays = rays;
     args.hits = hits;
+#endif // !DO_CUDA_RENDER
     args.numRays = numRays;
 
 #if DO_CUDA_RENDER
-    deviceInitData(s_Spheres, s_SphereMats, kSphereCount, numRays);
+    deviceInitData(&s_Cam, screenWidth, screenHeight, s_Spheres, s_SphereMats, kSphereCount, numRays);
 #endif // DO_CUDA_RENDER
 
     for (int frame = 0; frame < kNumFrames; frame++)
@@ -309,16 +311,11 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     }
 
 #if DO_CUDA_RENDER
-    cudaFreeHost(rays);
-    cudaFreeHost(hits);
+    deviceFreeData();
 #else
     delete[] rays;
     delete[] hits;
-#endif
-    delete[] samples;
-
-#if DO_CUDA_RENDER
-    deviceFreeData();
 #endif // DO_CUDA_RENDER
+    delete[] samples;
 
 }
