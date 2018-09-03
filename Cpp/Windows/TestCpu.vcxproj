@@ -152,6 +152,13 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>cudart_static.lib;d3d11.lib;kernel32.lib;user32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <CudaCompile>
+      <InterleaveSourceInPTX>false</InterleaveSourceInPTX>
+    </CudaCompile>
+    <CudaCompile>
+      <GenerateLineInfo>false</GenerateLineInfo>
+      <CodeGeneration>compute_50,sm_50</CodeGeneration>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\Source\Maths.cpp" />

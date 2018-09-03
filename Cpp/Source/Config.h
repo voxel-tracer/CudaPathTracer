@@ -3,6 +3,7 @@
 #define kBackbufferHeight 720
 #define kNumFrames 100
 #define kMaxDepth 10
+#define kThreadsPerBlock 128
 
 #define DO_SAMPLES_PER_PIXEL 4
 #define DO_LIGHT_SAMPLING 0

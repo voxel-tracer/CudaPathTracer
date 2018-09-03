@@ -383,19 +383,17 @@ void deviceStartFrame(const uint frame) {
     deviceData.frame = frame;
 
     // call kernel
-    const int threadsPerBlock = 1024;
-    const int blocksPerGrid = ceilf((float)deviceData.numRays / threadsPerBlock);
-    generateRays <<<blocksPerGrid, threadsPerBlock >>> (deviceData);
+    const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
+    generateRays <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
 }
 
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
 {
     // call kernel
-    const int threadsPerBlock = 1024;
-    const int blocksPerGrid = ceilf((float)deviceData.numRays / threadsPerBlock);
+    const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
 
-    HitWorldKernel <<<blocksPerGrid, threadsPerBlock >> > (deviceData, tMin, tMax);
-    ScatterKernel <<<blocksPerGrid, threadsPerBlock >> > (deviceData, depth);
+    HitWorldKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, tMin, tMax);
+    ScatterKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, depth);
 }
 
 void deviceEndFrame(Sample* samples)
