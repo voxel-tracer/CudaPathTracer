@@ -300,14 +300,14 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     if (rIdx >= data.numRays)
         return;
 
-    const cRay& r = data.rays[rIdx];
+    const cRay r = data.rays[rIdx];
     if (r.isDone())
         return;
 
     uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
 
-    const cHit& hit = data.hits[rIdx];
-    cSample& sample = data.samples[rIdx];
+    const cHit hit = data.hits[rIdx];
+    cSample sample = data.samples[rIdx];
     if (depth == 0)
     {
         sample.color = make_float3(0);
@@ -338,6 +338,8 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
         sample.color += sample.attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
         data.rays[rIdx].setDone();
     }
+
+    data.samples[rIdx] = sample;
 }
 
 __global__ void generateRays(const DeviceData data)
