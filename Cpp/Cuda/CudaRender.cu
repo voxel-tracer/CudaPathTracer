@@ -3,26 +3,17 @@
 
 __device__ float3 cRandomInUnitDisk(uint& state);
 
-struct cHit
-{
-    __device__ cHit() {}
-    __device__ cHit(float _t, float _id) :t(_t), id(_id) {}
-
-    float t;
-    int id;
-};
-
 struct cRay
 {
     __device__ cRay() {}
-    __device__ cRay(const float3& orig_, const float3& dir_) : orig(orig_), dir(dir_) {}
+    __device__ cRay(const float3& orig_, const float3& dir_) : orig(orig_), dir(dir_), done(false) {}
+    __device__ cRay(const cRay& r) : orig(r.orig), dir(r.dir), done(r.done) {}
 
     __device__ float3 pointAt(float t) const { return orig + dir * t; }
-    __device__ bool isDone() const { return dir.x == 0 && dir.y == 0 && dir.z == 0; }
-    __device__ void setDone() { dir = make_float3(0); }
 
     float3 orig;
     float3 dir;
+    bool done;
 };
 
 struct cSphere
@@ -52,11 +43,12 @@ struct cSample
 
 struct cCamera
 {
-    __device__ cRay GetRay(float s, float t, uint32_t& state) const
+    __device__ void GetRay(const float s, const float t, float3& ray_orig, float3& ray_dir, uint32_t& state) const
     {
         float3 rd = lensRadius * cRandomInUnitDisk(state);
         float3 offset = u * rd.x + v * rd.y;
-        return cRay(origin + offset, normalize(lowerLeftCorner + s * horizontal + t * vertical - origin - offset));
+        ray_orig = origin + offset;
+        ray_dir = normalize(lowerLeftCorner + s * horizontal + t * vertical - origin - offset);
     }
 
     float3 origin;
@@ -69,8 +61,17 @@ struct cCamera
 
 struct DeviceData
 {
-    cRay* rays;
-    cHit* hits;
+    float *rays_orig_x;
+    float *rays_orig_y;
+    float *rays_orig_z;
+    float *rays_dir_x;
+    float *rays_dir_y;
+    float *rays_dir_z;
+    bool *rays_done;
+
+    float *hits_t;
+    int *hits_id;
+
     cSample* samples;
     cSphere* spheres;
     cMaterial* materials;
@@ -127,9 +128,19 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
     if (rIdx >= data.numRays)
         return;
 
-    const cRay& r = data.rays[rIdx];
-    if (r.isDone())
+    if (data.rays_done[rIdx])
         return;
+
+    const float3 ray_orig = make_float3(
+        data.rays_orig_x[rIdx],
+        data.rays_orig_y[rIdx],
+        data.rays_orig_z[rIdx]);
+    const float3 ray_dir = make_float3(
+        data.rays_dir_x[rIdx],
+        data.rays_dir_y[rIdx],
+        data.rays_dir_z[rIdx]);
+
+    const cRay r(ray_orig, ray_dir);
 
     int hitId = -1;
     float closest = tMax, hitT;
@@ -142,7 +153,8 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
         }
     }
 
-    data.hits[rIdx] = cHit(closest, hitId);
+    data.hits_t[rIdx] = closest;
+    data.hits_id[rIdx] = hitId;
 }
 
 __device__ uint cXorShift32(uint& state)
@@ -226,10 +238,10 @@ __device__ float cSchlick(float cosine, float ri)
     return r0 + (1 - r0)*powf(1 - cosine, 5);
 }
 
-__device__ bool ScatterNoLightSampling(const DeviceData& data, const cMaterial& mat, const cRay& r_in, const cHit& rec, float3& attenuation, cRay& scattered, uint& state)
+__device__ bool ScatterNoLightSampling(const DeviceData& data, const cMaterial& mat, const cRay& r_in, const float hit_t, const int hit_id, float3& attenuation, cRay& scattered, uint& state)
 {
-    const float3 hitPos = r_in.pointAt(rec.t);
-    const float3 hitNormal = data.spheres[rec.id].normalAt(hitPos);
+    const float3 hitPos = r_in.pointAt(hit_t);
+    const float3 hitNormal = data.spheres[hit_id].normalAt(hitPos);
 
     if (mat.type == cMaterial::Lambert)
     {
@@ -300,13 +312,22 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     if (rIdx >= data.numRays)
         return;
 
-    const cRay r = data.rays[rIdx];
-    if (r.isDone())
+    if (data.rays_done[rIdx])
         return;
+
+    const float3 ray_orig = make_float3(
+        data.rays_orig_x[rIdx],
+        data.rays_orig_y[rIdx],
+        data.rays_orig_z[rIdx]);
+    const float3 ray_dir = make_float3(
+        data.rays_dir_x[rIdx],
+        data.rays_dir_y[rIdx],
+        data.rays_dir_z[rIdx]);
+
+    const cRay r(ray_orig, ray_dir);
 
     uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
 
-    const cHit hit = data.hits[rIdx];
     cSample sample = data.samples[rIdx];
     if (depth == 0)
     {
@@ -314,20 +335,27 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
         sample.attenuation = make_float3(1);
     }
 
-    if (hit.id >= 0)
+    const int hit_id = data.hits_id[rIdx];
+    if (hit_id >= 0)
     {
+        const float hit_t = data.hits_t[rIdx];
         cRay scattered;
-        const cMaterial& mat = data.materials[hit.id];
+        const cMaterial& mat = data.materials[hit_id];
         float3 local_attenuation;
         sample.color += mat.emissive * sample.attenuation;
-        if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit, local_attenuation, scattered, state))
+        if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit_t, hit_id, local_attenuation, scattered, state))
         {
             sample.attenuation *= local_attenuation;
-            data.rays[rIdx] = scattered;
+            data.rays_orig_x[rIdx] = scattered.orig.x;
+            data.rays_orig_y[rIdx] = scattered.orig.y;
+            data.rays_orig_z[rIdx] = scattered.orig.z;
+            data.rays_dir_x[rIdx] = scattered.dir.x;
+            data.rays_dir_y[rIdx] = scattered.dir.y;
+            data.rays_dir_z[rIdx] = scattered.dir.z;
         }
         else
         {
-            data.rays[rIdx].setDone();
+            data.rays_done[rIdx] = true;
         }
     }
     else
@@ -336,7 +364,7 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
         float3 unitDir = r.dir;
         float t = 0.5f*(unitDir.y + 1.0f);
         sample.color += sample.attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
-        data.rays[rIdx].setDone();
+        data.rays_done[rIdx] = true;
     }
 
     data.samples[rIdx] = sample;
@@ -355,8 +383,17 @@ __global__ void generateRays(const DeviceData data)
 
     float u = float(x + cRandomFloat01(state)) / data.width;
     float v = float(y + cRandomFloat01(state)) / data.height;
-    data.rays[rIdx] = data.camera->GetRay(u, v, state);
 
+    float3 ray_orig, ray_dir;
+    data.camera->GetRay(u, v, ray_orig, ray_dir, state);
+
+    data.rays_orig_x[rIdx] = ray_orig.x;
+    data.rays_orig_y[rIdx] = ray_orig.y;
+    data.rays_orig_z[rIdx] = ray_orig.z;
+    data.rays_dir_x[rIdx] = ray_dir.x;
+    data.rays_dir_y[rIdx] = ray_dir.y;
+    data.rays_dir_z[rIdx] = ray_dir.z;
+    data.rays_done[rIdx] = false; //TODO just use memset
 }
 
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
@@ -369,8 +406,17 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     // allocate device memory
     cudaMalloc((void**)&deviceData.spheres, spheresCount * sizeof(cSphere));
     cudaMalloc((void**)&deviceData.materials, spheresCount * sizeof(cMaterial));
-    cudaMalloc((void**)&deviceData.rays, numRays * sizeof(cRay));
-    cudaMalloc((void**)&deviceData.hits, numRays * sizeof(cHit));
+
+    cudaMalloc((void**)&deviceData.rays_orig_x, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_orig_y, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_orig_z, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_dir_x, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_dir_y, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_dir_z, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.rays_done, numRays * sizeof(bool));
+
+    cudaMalloc((void**)&deviceData.hits_t, numRays * sizeof(float));
+    cudaMalloc((void**)&deviceData.hits_id, numRays * sizeof(int));
     cudaMalloc((void**)&deviceData.samples, numRays * sizeof(cSample));
     cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
@@ -407,8 +453,17 @@ void deviceEndFrame(Sample* samples)
 void deviceFreeData()
 {
     cudaFree(deviceData.spheres);
-    cudaFree(deviceData.rays);
-    cudaFree(deviceData.hits);
+
+    cudaFree(deviceData.rays_orig_x);
+    cudaFree(deviceData.rays_orig_y);
+    cudaFree(deviceData.rays_orig_z);
+    cudaFree(deviceData.rays_dir_x);
+    cudaFree(deviceData.rays_dir_y);
+    cudaFree(deviceData.rays_dir_z);
+    cudaFree(deviceData.rays_done);
+
+    cudaFree(deviceData.hits_t);
+    cudaFree(deviceData.hits_id);
     cudaFree(deviceData.samples);
     cudaFree(deviceData.camera);
 }
