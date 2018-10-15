@@ -35,12 +35,6 @@ struct cMaterial
     float ri;
 };
 
-struct cSample
-{
-    float3 color;
-    float3 attenuation;
-};
-
 struct cCamera
 {
     __device__ void GetRay(const float s, const float t, float3& ray_orig, float3& ray_dir, uint32_t& state) const
@@ -72,7 +66,9 @@ struct DeviceData
     float *hits_t;
     int *hits_id;
 
-    cSample* samples;
+    float3 *samples_clr;
+    float3 *samples_atn;
+
     cSphere* spheres;
     cMaterial* materials;
     cCamera* camera;
@@ -328,11 +324,16 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
 
     uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
 
-    cSample sample = data.samples[rIdx];
+    float3 color, attenuation;
     if (depth == 0)
     {
-        sample.color = make_float3(0);
-        sample.attenuation = make_float3(1);
+        color = make_float3(0);
+        attenuation = make_float3(1);
+    }
+    else
+    {
+        color = data.samples_clr[rIdx];
+        attenuation = data.samples_atn[rIdx];
     }
 
     const int hit_id = data.hits_id[rIdx];
@@ -342,10 +343,10 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
         cRay scattered;
         const cMaterial& mat = data.materials[hit_id];
         float3 local_attenuation;
-        sample.color += mat.emissive * sample.attenuation;
+        color += mat.emissive * attenuation;
         if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit_t, hit_id, local_attenuation, scattered, state))
         {
-            sample.attenuation *= local_attenuation;
+            attenuation *= local_attenuation;
             data.rays_orig_x[rIdx] = scattered.orig.x;
             data.rays_orig_y[rIdx] = scattered.orig.y;
             data.rays_orig_z[rIdx] = scattered.orig.z;
@@ -363,11 +364,12 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
         // sky
         float3 unitDir = r.dir;
         float t = 0.5f*(unitDir.y + 1.0f);
-        sample.color += sample.attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+        color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
         data.rays_done[rIdx] = true;
     }
 
-    data.samples[rIdx] = sample;
+    data.samples_clr[rIdx] = color;
+    data.samples_atn[rIdx] = attenuation;
 }
 
 __global__ void generateRays(const DeviceData data)
@@ -417,7 +419,10 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
 
     cudaMalloc((void**)&deviceData.hits_t, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.hits_id, numRays * sizeof(int));
-    cudaMalloc((void**)&deviceData.samples, numRays * sizeof(cSample));
+
+    cudaMalloc((void**)&deviceData.samples_clr, numRays * sizeof(float3));
+    cudaMalloc((void**)&deviceData.samples_atn, numRays * sizeof(float3));
+
     cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
     // copy spheres and materials to device
@@ -444,10 +449,13 @@ void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
     ScatterKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, depth);
 }
 
-void deviceEndFrame(Sample* samples)
+void deviceEndFrame(f3* colors)
 {
+    const uint numRays = deviceData.numRays;
+
     // copy samples to host
-    cudaMemcpy(samples, deviceData.samples, deviceData.numRays * sizeof(cSample), cudaMemcpyDeviceToHost);
+    cudaMemcpyAsync(colors, deviceData.samples_clr, numRays * sizeof(float3), cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
 }
 
 void deviceFreeData()
@@ -464,6 +472,9 @@ void deviceFreeData()
 
     cudaFree(deviceData.hits_t);
     cudaFree(deviceData.hits_id);
-    cudaFree(deviceData.samples);
+
+    cudaFree(deviceData.samples_clr);
+    cudaFree(deviceData.samples_atn);
+
     cudaFree(deviceData.camera);
 }

@@ -103,15 +103,6 @@ struct Hit
     int id = -1;
 };
 
-struct Sample
-{
-    f3 color;
-    f3 attenuation;
-
-    Sample() : color(0, 0, 0), attenuation(1, 1, 1) {}
-};
-
-
 struct Sphere
 {
     Sphere() : radius(1.0f), invRadius(0.0f) {}

@@ -53,7 +53,7 @@ struct RendererData
     Ray* rays;
     Hit* hits;
 #endif // !DO_CUDA_RENDER
-    Sample* samples;
+    f3* colors;
 };
 
 #if DO_CUDA_RENDER == 0
@@ -240,7 +240,7 @@ static int TracePixels(RendererData data)
     }
 
 #if DO_CUDA_RENDER
-    deviceEndFrame(data.samples);
+    deviceEndFrame(data.colors);
 #endif
 
     // compute cumulated color for all samples
@@ -251,7 +251,7 @@ static int TracePixels(RendererData data)
             f3 col(0, 0, 0);
             for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
             {
-                col += data.samples[rIdx].color;
+                col += data.colors[rIdx];
             }
             col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
 
@@ -286,14 +286,14 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     Hit* hits = new Hit[numRays];
 #endif
 
-    Sample* samples = new Sample[numRays];
+    f3* colors = new f3[numRays];
 
     RendererData args;
     args.screenWidth = screenWidth;
     args.screenHeight = screenHeight;
     args.backbuffer = backbuffer;
     args.cam = &s_Cam;
-    args.samples = samples;
+    args.colors = colors;
 #if DO_CUDA_RENDER == 0
     args.rays = rays;
     args.hits = hits;
@@ -318,6 +318,6 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     delete[] rays;
     delete[] hits;
 #endif // DO_CUDA_RENDER
-    delete[] samples;
+    delete[] colors;
 
 }

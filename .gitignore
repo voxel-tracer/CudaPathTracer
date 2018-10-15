@@ -19,3 +19,5 @@ Unity/Temp/
 Unity/Builds
 Cpp/Windows/Compiled*Shader.h
 *.png
+
+profiler/
