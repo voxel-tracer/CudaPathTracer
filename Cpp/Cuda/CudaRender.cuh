@@ -10,6 +10,6 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
 
 void deviceStartFrame(const uint frame);
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth);
-void deviceEndFrame(f3* colors);
+void deviceEndRendering(f3* colors);
 
 void deviceFreeData();

@@ -239,31 +239,6 @@ static int TracePixels(RendererData data)
 #endif
     }
 
-#if DO_CUDA_RENDER
-    deviceEndFrame(data.colors);
-#endif
-
-    // compute cumulated color for all samples
-    for (int y = 0, rIdx = 0; y < data.screenHeight; y++)
-    {
-        for (int x = 0; x < data.screenWidth; x++)
-        {
-            f3 col(0, 0, 0);
-            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
-            {
-                col += data.colors[rIdx];
-            }
-            col *= 1.0f / float(DO_SAMPLES_PER_PIXEL);
-
-            f3 prev(backbuffer[0], backbuffer[1], backbuffer[2]);
-            col = prev * lerpFac + col * (1 - lerpFac);
-            backbuffer[0] = col.x;
-            backbuffer[1] = col.y;
-            backbuffer[2] = col.z;
-            backbuffer += 4;
-        }
-    }
-
     return rayCount;
 }
 
@@ -313,6 +288,24 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     }
 
 #if DO_CUDA_RENDER
+    deviceEndRendering(args.colors);
+
+    // compute cumulated color for all samples
+    const float devider = 1.0f / float(kNumFrames*DO_SAMPLES_PER_PIXEL);
+    for (int y = 0, rIdx = 0; y < args.screenHeight; y++) {
+        for (int x = 0; x < args.screenWidth; x++) {
+            f3 col(0, 0, 0);
+            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
+                col += args.colors[rIdx];
+            col *= devider;
+
+            backbuffer[0] = col.x;
+            backbuffer[1] = col.y;
+            backbuffer[2] = col.z;
+            backbuffer += 4;
+        }
+    }
+
     deviceFreeData();
 #else
     delete[] rays;

@@ -330,19 +330,16 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
 
     uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
 
-    float3 color, attenuation;
-    if (depth == 0)
-    {
-        color = make_float3(0);
+    float3 color = make_float3(
+        data.clr_x[rIdx],
+        data.clr_y[rIdx],
+        data.clr_z[rIdx]
+    );
+    float3 attenuation;
+    if (depth == 0) {
         attenuation = make_float3(1);
     }
-    else
-    {
-        color = make_float3(
-            data.clr_x[rIdx],
-            data.clr_y[rIdx],
-            data.clr_z[rIdx]
-        );
+    else {
         attenuation = make_float3(
             data.atn_x[rIdx],
             data.atn_y[rIdx],
@@ -449,6 +446,10 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMalloc((void**)&deviceData.atn_y, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.atn_z, numRays * sizeof(float));
 
+    cudaMemsetAsync((void*)deviceData.clr_x, 0, numRays * sizeof(float));
+    cudaMemsetAsync((void*)deviceData.clr_y, 0, numRays * sizeof(float));
+    cudaMemsetAsync((void*)deviceData.clr_z, 0, numRays * sizeof(float));
+
     cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
     // copy spheres and materials to device
@@ -475,7 +476,7 @@ void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
     ScatterKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, depth);
 }
 
-void deviceEndFrame(f3* colors)
+void deviceEndRendering(f3* colors)
 {
     const uint numRays = deviceData.numRays;
 
