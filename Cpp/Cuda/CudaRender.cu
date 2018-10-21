@@ -352,7 +352,7 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     {
         const float hit_t = data.hits_t[rIdx];
         cRay scattered;
-        const cMaterial& mat = data.materials[hit_id];
+        const cMaterial mat = data.materials[hit_id];
         float3 local_attenuation;
         color += mat.emissive * attenuation;
         if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit_t, hit_id, local_attenuation, scattered, state))
