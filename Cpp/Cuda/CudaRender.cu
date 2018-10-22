@@ -20,7 +20,6 @@ struct cSphere
 {
     float3 center;
     float radius;
-    float _not_used;
 
     __device__ float3 normalAt(const float3& pos) const { return (pos - center) / radius; }
 };

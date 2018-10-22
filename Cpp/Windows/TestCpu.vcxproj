@@ -161,7 +161,6 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\Source\Maths.cpp" />
     <ClCompile Include="..\Source\Test.cpp" />
     <ClCompile Include="TestWin.cpp" />
   </ItemGroup>
