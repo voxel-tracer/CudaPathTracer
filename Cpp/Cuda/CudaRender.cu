@@ -74,17 +74,19 @@ struct DeviceData
 
     float *h_tmp;
 
-    cSphere* spheres;
     cMaterial* materials;
     cCamera* camera;
     uint numRays;
-    uint spheresCount;
     uint frame;
     uint width;
     uint height;
 };
 
 DeviceData deviceData;
+
+const uint kSphereCount = 9;
+
+__device__ __constant__ cSphere d_spheres[kSphereCount];
 
 __device__ float sqLength(const float3& v)
 {
@@ -145,9 +147,9 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
 
     int hitId = -1;
     float closest = tMax, hitT;
-    for (int i = 0; i < data.spheresCount; ++i)
+    for (int i = 0; i < kSphereCount; ++i)
     {
-        if (HitSphere(r, data.spheres[i], tMin, closest, hitT))
+        if (HitSphere(r, d_spheres[i], tMin, closest, hitT))
         {
             closest = hitT;
             hitId = i;
@@ -242,7 +244,7 @@ __device__ float cSchlick(float cosine, float ri)
 __device__ bool ScatterNoLightSampling(const DeviceData& data, const cMaterial& mat, const cRay& r_in, const float hit_t, const int hit_id, float3& attenuation, cRay& scattered, uint& state)
 {
     const float3 hitPos = r_in.pointAt(hit_t);
-    const float3 hitNormal = data.spheres[hit_id].normalAt(hitPos);
+    const float3 hitNormal = d_spheres[hit_id].normalAt(hitPos);
 
     if (mat.type == cMaterial::Lambert)
     {
@@ -417,14 +419,12 @@ __global__ void generateRays(const DeviceData data)
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
 {
     deviceData.numRays = numRays;
-    deviceData.spheresCount = spheresCount;
     deviceData.width = width;
     deviceData.height = height;
 
     cudaMallocHost((void**)&deviceData.h_tmp, numRays * sizeof(float));
 
     // allocate device memory
-    cudaMalloc((void**)&deviceData.spheres, spheresCount * sizeof(cSphere));
     cudaMalloc((void**)&deviceData.materials, spheresCount * sizeof(cMaterial));
 
     cudaMalloc((void**)&deviceData.rays_orig_x, numRays * sizeof(float));
@@ -452,7 +452,7 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
     // copy spheres and materials to device
-    cudaMemcpy(deviceData.spheres, spheres, spheresCount * sizeof(cSphere), cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(d_spheres, spheres, kSphereCount * sizeof(cSphere));
     cudaMemcpy(deviceData.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
 
     cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
@@ -495,8 +495,6 @@ void deviceEndRendering(f3* colors)
 
 void deviceFreeData()
 {
-    cudaFree(deviceData.spheres);
-
     cudaFree(deviceData.rays_orig_x);
     cudaFree(deviceData.rays_orig_y);
     cudaFree(deviceData.rays_orig_z);
