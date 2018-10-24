@@ -74,7 +74,6 @@ struct DeviceData
 
     float *h_tmp;
 
-    cMaterial* materials;
     cCamera* camera;
     uint numRays;
     uint frame;
@@ -87,6 +86,7 @@ DeviceData deviceData;
 const uint kSphereCount = 9;
 
 __device__ __constant__ cSphere d_spheres[kSphereCount];
+__device__ __constant__ cMaterial d_materials[kSphereCount];
 
 __device__ float sqLength(const float3& v)
 {
@@ -353,7 +353,7 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     {
         const float hit_t = data.hits_t[rIdx];
         cRay scattered;
-        const cMaterial mat = data.materials[hit_id];
+        const cMaterial mat = d_materials[hit_id];
         float3 local_attenuation;
         color += mat.emissive * attenuation;
         if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit_t, hit_id, local_attenuation, scattered, state))
@@ -425,8 +425,6 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMallocHost((void**)&deviceData.h_tmp, numRays * sizeof(float));
 
     // allocate device memory
-    cudaMalloc((void**)&deviceData.materials, spheresCount * sizeof(cMaterial));
-
     cudaMalloc((void**)&deviceData.rays_orig_x, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.rays_orig_y, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.rays_orig_z, numRays * sizeof(float));
@@ -453,7 +451,7 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
 
     // copy spheres and materials to device
     cudaMemcpyToSymbol(d_spheres, spheres, kSphereCount * sizeof(cSphere));
-    cudaMemcpy(deviceData.materials, materials, spheresCount * sizeof(cMaterial), cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(d_materials, materials, kSphereCount * sizeof(cMaterial));
 
     cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
 }
