@@ -125,6 +125,25 @@ __device__ bool HitSphere(const cRay& r, const cSphere& s, float tMin, float tMa
     return false;
 }
 
+__device__ int hitWorld(const cRay& ray, float& closest, const float tMin, const float tMax)
+{
+    int hitId = -1;
+    float hitT;
+
+    closest = tMax;
+
+    for (int i = 0; i < kSphereCount; ++i)
+    {
+        if (HitSphere(ray, d_spheres[i], tMin, closest, hitT))
+        {
+            closest = hitT;
+            hitId = i;
+        }
+    }
+
+    return hitId;
+}
+
 __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -145,16 +164,9 @@ __global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
 
     const cRay r(ray_orig, ray_dir);
 
-    int hitId = -1;
-    float closest = tMax, hitT;
-    for (int i = 0; i < kSphereCount; ++i)
-    {
-        if (HitSphere(r, d_spheres[i], tMin, closest, hitT))
-        {
-            closest = hitT;
-            hitId = i;
-        }
-    }
+    float closest;
+
+    int hitId = hitWorld(r, closest, tMin, tMax);
 
     data.hits_t[rIdx] = closest;
     data.hits_id[rIdx] = hitId;
@@ -309,6 +321,27 @@ __device__ bool ScatterNoLightSampling(const DeviceData& data, const cMaterial& 
     return true;
 }
 
+__device__ bool scatterHit(const cRay& ray, const int hit_id, const float hit_t, const uint depth, const DeviceData& data, uint& state, float3& color, float3& attenuation, cRay& scattered)
+{
+    const cMaterial mat = d_materials[hit_id];
+    float3 local_attenuation;
+    color += mat.emissive * attenuation;
+    if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, ray, hit_t, hit_id, local_attenuation, scattered, state))
+    {
+        attenuation *= local_attenuation;
+        return true;
+    }
+
+    return false;
+}
+
+__device__ void scatterNoHit(const float3 ray_dir, float3& color, const float3& attenuation)
+{
+    // sky
+    float t = 0.5f*(ray_dir.y + 1.0f);
+    color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+}
+
 __global__ void ScatterKernel(const DeviceData data, const uint depth)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -353,12 +386,10 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     {
         const float hit_t = data.hits_t[rIdx];
         cRay scattered;
-        const cMaterial mat = d_materials[hit_id];
-        float3 local_attenuation;
-        color += mat.emissive * attenuation;
-        if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, r, hit_t, hit_id, local_attenuation, scattered, state))
+
+        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
+        if (not_done)
         {
-            attenuation *= local_attenuation;
             data.rays_orig_x[rIdx] = scattered.orig.x;
             data.rays_orig_y[rIdx] = scattered.orig.y;
             data.rays_orig_z[rIdx] = scattered.orig.z;
@@ -374,9 +405,7 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     else
     {
         // sky
-        float3 unitDir = r.dir;
-        float t = 0.5f*(unitDir.y + 1.0f);
-        color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
+        scatterNoHit(r.dir, color, attenuation);
         data.rays_done[rIdx] = true;
     }
 
@@ -390,6 +419,17 @@ __global__ void ScatterKernel(const DeviceData data, const uint depth)
     data.atn_z[rIdx] = attenuation.z;
 }
 
+__device__ cRay generateRay(const uint x, const uint y, const DeviceData& data, uint& state)
+{
+    float u = float(x + cRandomFloat01(state)) / data.width;
+    float v = float(y + cRandomFloat01(state)) / data.height;
+
+    float3 ray_orig, ray_dir;
+    data.camera->GetRay(u, v, ray_orig, ray_dir, state);
+
+    return cRay(ray_orig, ray_dir);
+}
+
 __global__ void generateRays(const DeviceData data)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -401,18 +441,14 @@ __global__ void generateRays(const DeviceData data)
     const uint x = (rIdx % w) / DO_SAMPLES_PER_PIXEL;
     uint state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
 
-    float u = float(x + cRandomFloat01(state)) / data.width;
-    float v = float(y + cRandomFloat01(state)) / data.height;
+    cRay ray = generateRay(x, y, data, state);
 
-    float3 ray_orig, ray_dir;
-    data.camera->GetRay(u, v, ray_orig, ray_dir, state);
-
-    data.rays_orig_x[rIdx] = ray_orig.x;
-    data.rays_orig_y[rIdx] = ray_orig.y;
-    data.rays_orig_z[rIdx] = ray_orig.z;
-    data.rays_dir_x[rIdx] = ray_dir.x;
-    data.rays_dir_y[rIdx] = ray_dir.y;
-    data.rays_dir_z[rIdx] = ray_dir.z;
+    data.rays_orig_x[rIdx] = ray.orig.x;
+    data.rays_orig_y[rIdx] = ray.orig.y;
+    data.rays_orig_z[rIdx] = ray.orig.z;
+    data.rays_dir_x[rIdx] = ray.dir.x;
+    data.rays_dir_y[rIdx] = ray.dir.y;
+    data.rays_dir_z[rIdx] = ray.dir.z;
     data.rays_done[rIdx] = false; //TODO just use memset
 }
 
