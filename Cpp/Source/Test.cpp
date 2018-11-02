@@ -61,10 +61,11 @@ static int TracePixels(RendererData data)
 #endif
     int rayCount = 0;
 
-    deviceStartFrame(data.frameCount);
+    // startFrame renders the primary rays, that's why depth starts from 1
+    deviceStartFrame(data.frameCount, kMinT, kMaxT);
 
     // trace all samples through the scene
-    for (int depth = 0; depth <= kMaxDepth; depth++)
+    for (int depth = 1; depth <= kMaxDepth; depth++)
         deviceRenderFrame(kMinT, kMaxT, depth);
 
     return rayCount;

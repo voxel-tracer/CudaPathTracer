@@ -144,7 +144,35 @@ __device__ int hitWorld(const cRay& ray, float& closest, const float tMin, const
     return hitId;
 }
 
-__global__ void HitWorldKernel(const DeviceData data, float tMin, float tMax)
+__global__ void p_hitWorld(const DeviceData data, float tMin, float tMax)
+{
+    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (rIdx >= data.numRays)
+        return;
+
+    if (data.rays_done[rIdx])
+        return;
+
+    const float3 ray_orig = make_float3(
+        data.rays_orig_x[rIdx],
+        data.rays_orig_y[rIdx],
+        data.rays_orig_z[rIdx]);
+    const float3 ray_dir = make_float3(
+        data.rays_dir_x[rIdx],
+        data.rays_dir_y[rIdx],
+        data.rays_dir_z[rIdx]);
+
+    const cRay r(ray_orig, ray_dir);
+
+    float closest;
+
+    int hitId = hitWorld(r, closest, tMin, tMax);
+
+    data.hits_t[rIdx] = closest;
+    data.hits_id[rIdx] = hitId;
+}
+
+__global__ void s_hitWorld(const DeviceData data, float tMin, float tMax)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
     if (rIdx >= data.numRays)
@@ -342,7 +370,84 @@ __device__ void scatterNoHit(const float3 ray_dir, float3& color, const float3& 
     color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
 }
 
-__global__ void ScatterKernel(const DeviceData data, const uint depth)
+__global__ void p_scatter(const DeviceData data, const uint depth)
+{
+    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (rIdx >= data.numRays)
+        return;
+
+    if (data.rays_done[rIdx])
+        return;
+
+    const float3 ray_orig = make_float3(
+        data.rays_orig_x[rIdx],
+        data.rays_orig_y[rIdx],
+        data.rays_orig_z[rIdx]);
+    const float3 ray_dir = make_float3(
+        data.rays_dir_x[rIdx],
+        data.rays_dir_y[rIdx],
+        data.rays_dir_z[rIdx]);
+
+    const cRay r(ray_orig, ray_dir);
+
+    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
+
+    float3 color = make_float3(
+        data.clr_x[rIdx],
+        data.clr_y[rIdx],
+        data.clr_z[rIdx]
+    );
+    float3 attenuation;
+    if (depth == 0) {
+        attenuation = make_float3(1);
+    }
+    else {
+        attenuation = make_float3(
+            data.atn_x[rIdx],
+            data.atn_y[rIdx],
+            data.atn_z[rIdx]
+        );
+    }
+
+    const int hit_id = data.hits_id[rIdx];
+    if (hit_id >= 0)
+    {
+        const float hit_t = data.hits_t[rIdx];
+        cRay scattered;
+
+        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
+        if (not_done)
+        {
+            data.rays_orig_x[rIdx] = scattered.orig.x;
+            data.rays_orig_y[rIdx] = scattered.orig.y;
+            data.rays_orig_z[rIdx] = scattered.orig.z;
+            data.rays_dir_x[rIdx] = scattered.dir.x;
+            data.rays_dir_y[rIdx] = scattered.dir.y;
+            data.rays_dir_z[rIdx] = scattered.dir.z;
+        }
+        else
+        {
+            data.rays_done[rIdx] = true;
+        }
+    }
+    else
+    {
+        // sky
+        scatterNoHit(r.dir, color, attenuation);
+        data.rays_done[rIdx] = true;
+    }
+
+    data.clr_x[rIdx] = color.x;
+    data.clr_y[rIdx] = color.y;
+    data.clr_z[rIdx] = color.z;
+
+    //TODO no need to write this in the last depth iteration
+    data.atn_x[rIdx] = attenuation.x;
+    data.atn_y[rIdx] = attenuation.y;
+    data.atn_z[rIdx] = attenuation.z;
+}
+
+__global__ void s_scatter(const DeviceData data, const uint depth)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
     if (rIdx >= data.numRays)
@@ -492,12 +597,14 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
 }
 
-void deviceStartFrame(const uint frame) {
+void deviceStartFrame(const uint frame, const float tMin, const float tMax) {
     deviceData.frame = frame;
 
     // call kernel
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
     generateRays <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
+    p_hitWorld <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
+    p_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, 0);
 }
 
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
@@ -505,8 +612,8 @@ void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
     // call kernel
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
 
-    HitWorldKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, tMin, tMax);
-    ScatterKernel <<<blocksPerGrid, kThreadsPerBlock >> > (deviceData, depth);
+    s_hitWorld <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
+    s_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, depth);
 }
 
 void deviceEndRendering(f3* colors)
