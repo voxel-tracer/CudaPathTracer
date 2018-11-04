@@ -62,9 +62,6 @@ struct DeviceData
     float *rays_dir_z;
     bool *rays_done;
 
-    float *hits_t;
-    int *hits_id;
-
     float *clr_x;
     float *clr_y;
     float *clr_z;
@@ -142,34 +139,6 @@ __device__ int hitWorld(const cRay& ray, float& closest, const float tMin, const
     }
 
     return hitId;
-}
-
-__global__ void s_hitWorld(const DeviceData data, float tMin, float tMax)
-{
-    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
-        return;
-
-    if (data.rays_done[rIdx])
-        return;
-
-    const float3 ray_orig = make_float3(
-        data.rays_orig_x[rIdx],
-        data.rays_orig_y[rIdx],
-        data.rays_orig_z[rIdx]);
-    const float3 ray_dir = make_float3(
-        data.rays_dir_x[rIdx],
-        data.rays_dir_y[rIdx],
-        data.rays_dir_z[rIdx]);
-
-    const cRay r(ray_orig, ray_dir);
-
-    float closest;
-
-    int hitId = hitWorld(r, closest, tMin, tMax);
-
-    data.hits_t[rIdx] = closest;
-    data.hits_id[rIdx] = hitId;
 }
 
 __device__ uint cXorShift32(uint& state)
@@ -342,83 +311,6 @@ __device__ void scatterNoHit(const float3 ray_dir, float3& color, const float3& 
     color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
 }
 
-__global__ void s_scatter(const DeviceData data, const uint depth)
-{
-    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
-        return;
-
-    if (data.rays_done[rIdx])
-        return;
-
-    const float3 ray_orig = make_float3(
-        data.rays_orig_x[rIdx],
-        data.rays_orig_y[rIdx],
-        data.rays_orig_z[rIdx]);
-    const float3 ray_dir = make_float3(
-        data.rays_dir_x[rIdx],
-        data.rays_dir_y[rIdx],
-        data.rays_dir_z[rIdx]);
-
-    const cRay r(ray_orig, ray_dir);
-
-    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
-
-    float3 color = make_float3(
-        data.clr_x[rIdx],
-        data.clr_y[rIdx],
-        data.clr_z[rIdx]
-    );
-    float3 attenuation;
-    if (depth == 0) {
-        attenuation = make_float3(1);
-    }
-    else {
-        attenuation = make_float3(
-            data.atn_x[rIdx],
-            data.atn_y[rIdx],
-            data.atn_z[rIdx]
-        );
-    }
-
-    const int hit_id = data.hits_id[rIdx];
-    if (hit_id >= 0)
-    {
-        const float hit_t = data.hits_t[rIdx];
-        cRay scattered;
-
-        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
-        if (not_done)
-        {
-            data.rays_orig_x[rIdx] = scattered.orig.x;
-            data.rays_orig_y[rIdx] = scattered.orig.y;
-            data.rays_orig_z[rIdx] = scattered.orig.z;
-            data.rays_dir_x[rIdx] = scattered.dir.x;
-            data.rays_dir_y[rIdx] = scattered.dir.y;
-            data.rays_dir_z[rIdx] = scattered.dir.z;
-        }
-        else
-        {
-            data.rays_done[rIdx] = true;
-        }
-    }
-    else
-    {
-        // sky
-        scatterNoHit(r.dir, color, attenuation);
-        data.rays_done[rIdx] = true;
-    }
-
-    data.clr_x[rIdx] = color.x;
-    data.clr_y[rIdx] = color.y;
-    data.clr_z[rIdx] = color.z;
-
-    //TODO no need to write this in the last depth iteration
-    data.atn_x[rIdx] = attenuation.x;
-    data.atn_y[rIdx] = attenuation.y;
-    data.atn_z[rIdx] = attenuation.z;
-}
-
 __device__ cRay generateRay(const uint x, const uint y, const DeviceData& data, uint& state)
 {
     float u = float(x + cRandomFloat01(state)) / data.width;
@@ -445,8 +337,6 @@ __global__ void primary(const DeviceData data, float tMin, float tMax)
 
     float hit_t;
     int hit_id = hitWorld(r, hit_t, tMin, tMax);
-
-    state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
 
     float3 color = make_float3(
         data.clr_x[rIdx],
@@ -492,6 +382,78 @@ __global__ void primary(const DeviceData data, float tMin, float tMax)
     data.rays_done[rIdx] = ray_done;
 }
 
+__global__ void secondary(const DeviceData data, const uint depth, float tMin, float tMax)
+{
+    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
+    if (rIdx >= data.numRays)
+        return;
+
+    if (data.rays_done[rIdx])
+        return;
+
+    const float3 ray_orig = make_float3(
+        data.rays_orig_x[rIdx],
+        data.rays_orig_y[rIdx],
+        data.rays_orig_z[rIdx]);
+    const float3 ray_dir = make_float3(
+        data.rays_dir_x[rIdx],
+        data.rays_dir_y[rIdx],
+        data.rays_dir_z[rIdx]);
+
+    const cRay r(ray_orig, ray_dir);
+
+    float hit_t;
+    int hit_id = hitWorld(r, hit_t, tMin, tMax);
+
+    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
+
+    float3 color = make_float3(
+        data.clr_x[rIdx],
+        data.clr_y[rIdx],
+        data.clr_z[rIdx]
+    );
+    float3 attenuation = make_float3(
+        data.atn_x[rIdx],
+        data.atn_y[rIdx],
+        data.atn_z[rIdx]
+    );
+
+    if (hit_id >= 0)
+    {
+        cRay scattered;
+
+        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
+        if (not_done)
+        {
+            data.rays_orig_x[rIdx] = scattered.orig.x;
+            data.rays_orig_y[rIdx] = scattered.orig.y;
+            data.rays_orig_z[rIdx] = scattered.orig.z;
+            data.rays_dir_x[rIdx] = scattered.dir.x;
+            data.rays_dir_y[rIdx] = scattered.dir.y;
+            data.rays_dir_z[rIdx] = scattered.dir.z;
+        }
+        else
+        {
+            data.rays_done[rIdx] = true;
+        }
+    }
+    else
+    {
+        // sky
+        scatterNoHit(r.dir, color, attenuation);
+        data.rays_done[rIdx] = true;
+    }
+
+    data.clr_x[rIdx] = color.x;
+    data.clr_y[rIdx] = color.y;
+    data.clr_z[rIdx] = color.z;
+
+    //TODO no need to write this in the last depth iteration
+    data.atn_x[rIdx] = attenuation.x;
+    data.atn_y[rIdx] = attenuation.y;
+    data.atn_z[rIdx] = attenuation.z;
+}
+
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
 {
     deviceData.numRays = numRays;
@@ -508,9 +470,6 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMalloc((void**)&deviceData.rays_dir_y, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.rays_dir_z, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.rays_done, numRays * sizeof(bool));
-
-    cudaMalloc((void**)&deviceData.hits_t, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.hits_id, numRays * sizeof(int));
 
     cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float));
@@ -545,8 +504,7 @@ void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
     // call kernel
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
 
-    s_hitWorld <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
-    s_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, depth);
+    secondary <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, depth, tMin, tMax);
 }
 
 void deviceEndRendering(f3* colors)
@@ -576,9 +534,6 @@ void deviceFreeData()
     cudaFree(deviceData.rays_dir_y);
     cudaFree(deviceData.rays_dir_z);
     cudaFree(deviceData.rays_done);
-
-    cudaFree(deviceData.hits_t);
-    cudaFree(deviceData.hits_id);
 
     cudaFree(deviceData.clr_x);
     cudaFree(deviceData.clr_y);
