@@ -144,31 +144,6 @@ __device__ int hitWorld(const cRay& ray, float& closest, const float tMin, const
     return hitId;
 }
 
-__global__ void p_hitWorld(const DeviceData data, float tMin, float tMax)
-{
-    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
-        return;
-
-    const float3 ray_orig = make_float3(
-        data.rays_orig_x[rIdx],
-        data.rays_orig_y[rIdx],
-        data.rays_orig_z[rIdx]);
-    const float3 ray_dir = make_float3(
-        data.rays_dir_x[rIdx],
-        data.rays_dir_y[rIdx],
-        data.rays_dir_z[rIdx]);
-
-    const cRay r(ray_orig, ray_dir);
-
-    float closest;
-
-    int hitId = hitWorld(r, closest, tMin, tMax);
-
-    data.hits_t[rIdx] = closest;
-    data.hits_id[rIdx] = hitId;
-}
-
 __global__ void s_hitWorld(const DeviceData data, float tMin, float tMax)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -367,70 +342,6 @@ __device__ void scatterNoHit(const float3 ray_dir, float3& color, const float3& 
     color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
 }
 
-__global__ void p_scatter(const DeviceData data)
-{
-    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
-        return;
-
-    const float3 ray_orig = make_float3(
-        data.rays_orig_x[rIdx],
-        data.rays_orig_y[rIdx],
-        data.rays_orig_z[rIdx]);
-    const float3 ray_dir = make_float3(
-        data.rays_dir_x[rIdx],
-        data.rays_dir_y[rIdx],
-        data.rays_dir_z[rIdx]);
-
-    const cRay r(ray_orig, ray_dir);
-
-    uint state = (cWang_hash(rIdx) + data.frame*kMaxDepth * 101141101) * 336343633;
-
-    float3 color = make_float3(
-        data.clr_x[rIdx],
-        data.clr_y[rIdx],
-        data.clr_z[rIdx]
-    );
-    float3 attenuation = make_float3(1);
-
-    const int hit_id = data.hits_id[rIdx];
-    if (hit_id >= 0)
-    {
-        const float hit_t = data.hits_t[rIdx];
-        cRay scattered;
-
-        bool not_done = scatterHit(r, hit_id, hit_t, 0, data, state, color, attenuation, scattered);
-        if (not_done)
-        {
-            data.rays_orig_x[rIdx] = scattered.orig.x;
-            data.rays_orig_y[rIdx] = scattered.orig.y;
-            data.rays_orig_z[rIdx] = scattered.orig.z;
-            data.rays_dir_x[rIdx] = scattered.dir.x;
-            data.rays_dir_y[rIdx] = scattered.dir.y;
-            data.rays_dir_z[rIdx] = scattered.dir.z;
-        }
-        else
-        {
-            data.rays_done[rIdx] = true;
-        }
-    }
-    else
-    {
-        // sky
-        scatterNoHit(r.dir, color, attenuation);
-        data.rays_done[rIdx] = true;
-    }
-
-    data.clr_x[rIdx] = color.x;
-    data.clr_y[rIdx] = color.y;
-    data.clr_z[rIdx] = color.z;
-
-    //TODO no need to write this in the last depth iteration
-    data.atn_x[rIdx] = attenuation.x;
-    data.atn_y[rIdx] = attenuation.y;
-    data.atn_z[rIdx] = attenuation.z;
-}
-
 __global__ void s_scatter(const DeviceData data, const uint depth)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -519,7 +430,7 @@ __device__ cRay generateRay(const uint x, const uint y, const DeviceData& data, 
     return cRay(ray_orig, ray_dir);
 }
 
-__global__ void generateRays(const DeviceData data)
+__global__ void primary(const DeviceData data, float tMin, float tMax)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
     if (rIdx >= data.numRays)
@@ -530,15 +441,55 @@ __global__ void generateRays(const DeviceData data)
     const uint x = (rIdx % w) / DO_SAMPLES_PER_PIXEL;
     uint state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
 
-    cRay ray = generateRay(x, y, data, state);
+    cRay r = generateRay(x, y, data, state);
 
-    data.rays_orig_x[rIdx] = ray.orig.x;
-    data.rays_orig_y[rIdx] = ray.orig.y;
-    data.rays_orig_z[rIdx] = ray.orig.z;
-    data.rays_dir_x[rIdx] = ray.dir.x;
-    data.rays_dir_y[rIdx] = ray.dir.y;
-    data.rays_dir_z[rIdx] = ray.dir.z;
-    data.rays_done[rIdx] = false; //TODO just use memset
+    float hit_t;
+    int hit_id = hitWorld(r, hit_t, tMin, tMax);
+
+    state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
+
+    float3 color = make_float3(
+        data.clr_x[rIdx],
+        data.clr_y[rIdx],
+        data.clr_z[rIdx]
+    );
+    float3 attenuation = make_float3(1);
+    bool ray_done = false;
+    if (hit_id >= 0)
+    {
+        cRay scattered;
+
+        bool not_done = scatterHit(r, hit_id, hit_t, 0, data, state, color, attenuation, scattered);
+        if (not_done)
+        {
+            data.rays_orig_x[rIdx] = scattered.orig.x;
+            data.rays_orig_y[rIdx] = scattered.orig.y;
+            data.rays_orig_z[rIdx] = scattered.orig.z;
+            data.rays_dir_x[rIdx] = scattered.dir.x;
+            data.rays_dir_y[rIdx] = scattered.dir.y;
+            data.rays_dir_z[rIdx] = scattered.dir.z;
+        }
+        else
+        {
+            ray_done = true;
+        }
+    }
+    else
+    {
+        // sky
+        scatterNoHit(r.dir, color, attenuation);
+        ray_done = true;
+    }
+
+    data.clr_x[rIdx] = color.x;
+    data.clr_y[rIdx] = color.y;
+    data.clr_z[rIdx] = color.z;
+
+    data.atn_x[rIdx] = attenuation.x;
+    data.atn_y[rIdx] = attenuation.y;
+    data.atn_z[rIdx] = attenuation.z;
+
+    data.rays_done[rIdx] = ray_done;
 }
 
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
@@ -586,9 +537,7 @@ void deviceStartFrame(const uint frame, const float tMin, const float tMax) {
 
     // call kernel
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
-    generateRays <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
-    p_hitWorld <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
-    p_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
+    primary <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
 }
 
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
