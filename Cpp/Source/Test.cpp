@@ -94,7 +94,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.numRays = numRays;
 
     deviceInitData(&s_Cam, screenWidth, screenHeight, s_Spheres, s_SphereMats, kSphereCount, numRays);
-    if (kNumFrames == 100) outRayCount = 854161957;
+    if (kNumFrames == 100) outRayCount = 854238240; // 854161957;
     else if (kNumFrames == 1000) outRayCount = 4246579592;
 
     for (int frame = 0; frame < kNumFrames; frame++)

@@ -214,12 +214,9 @@ __device__ float cRandomFloat01(uint& state)
 
 __device__ float3 cRandomInUnitDisk(uint& state)
 {
-    float3 p;
-    do
-    {
-        p = make_float3(2 * cRandomFloat01(state) - 1, 2 * cRandomFloat01(state) - 1, 0);
-    } while (dot(p, p) >= 1.0);
-    return p;
+    const float a = cRandomFloat01(state) * 2.0f * kPI;
+    const float u = sqrtf(cRandomFloat01(state));
+    return make_float3(u*cosf(a), u*sinf(a), 0);
 }
 
 float3 make_float3(const f3 f) {
@@ -238,11 +235,14 @@ __device__ float3 cRandomUnitVector(uint& state)
 
 __device__ float3 cRandomInUnitSphere(uint& state)
 {
-    float3 p;
-    do {
-        p = make_float3(2*cRandomFloat01(state) - 1, 2*cRandomFloat01(state) - 1, 2*cRandomFloat01(state) - 1);
-    } while (sqLength(p) >= 1.0);
-    return p;
+    float z = cRandomFloat01(state) * 2.0f - 1.0f;
+    float t = cRandomFloat01(state) * 2.0f * kPI;
+    float r = sqrtf(fmaxf(0.0, 1.0f - z * z));
+    float x = r * cosf(t);
+    float y = r * sinf(t);
+    float3 res = make_float3(x, y, z);
+    res *= cbrtf(cRandomFloat01(state));
+    return res;
 }
 
 /*
