@@ -150,9 +150,6 @@ __global__ void p_hitWorld(const DeviceData data, float tMin, float tMax)
     if (rIdx >= data.numRays)
         return;
 
-    if (data.rays_done[rIdx])
-        return;
-
     const float3 ray_orig = make_float3(
         data.rays_orig_x[rIdx],
         data.rays_orig_y[rIdx],
@@ -370,13 +367,10 @@ __device__ void scatterNoHit(const float3 ray_dir, float3& color, const float3& 
     color += attenuation * ((1.0f - t)*make_float3(1) + t * make_float3(0.5f, 0.7f, 1.0f)) * 0.3f;
 }
 
-__global__ void p_scatter(const DeviceData data, const uint depth)
+__global__ void p_scatter(const DeviceData data)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
     if (rIdx >= data.numRays)
-        return;
-
-    if (data.rays_done[rIdx])
         return;
 
     const float3 ray_orig = make_float3(
@@ -390,24 +384,14 @@ __global__ void p_scatter(const DeviceData data, const uint depth)
 
     const cRay r(ray_orig, ray_dir);
 
-    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
+    uint state = (cWang_hash(rIdx) + data.frame*kMaxDepth * 101141101) * 336343633;
 
     float3 color = make_float3(
         data.clr_x[rIdx],
         data.clr_y[rIdx],
         data.clr_z[rIdx]
     );
-    float3 attenuation;
-    if (depth == 0) {
-        attenuation = make_float3(1);
-    }
-    else {
-        attenuation = make_float3(
-            data.atn_x[rIdx],
-            data.atn_y[rIdx],
-            data.atn_z[rIdx]
-        );
-    }
+    float3 attenuation = make_float3(1);
 
     const int hit_id = data.hits_id[rIdx];
     if (hit_id >= 0)
@@ -415,7 +399,7 @@ __global__ void p_scatter(const DeviceData data, const uint depth)
         const float hit_t = data.hits_t[rIdx];
         cRay scattered;
 
-        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
+        bool not_done = scatterHit(r, hit_id, hit_t, 0, data, state, color, attenuation, scattered);
         if (not_done)
         {
             data.rays_orig_x[rIdx] = scattered.orig.x;
@@ -604,7 +588,7 @@ void deviceStartFrame(const uint frame, const float tMin, const float tMax) {
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
     generateRays <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
     p_hitWorld <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
-    p_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, 0);
+    p_scatter <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
 }
 
 void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
