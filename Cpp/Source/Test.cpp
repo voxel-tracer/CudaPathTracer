@@ -36,9 +36,6 @@ static Material s_SphereMats[kSphereCount] =
 
 static Camera s_Cam;
 
-const float kMinT = 0.001f;
-const float kMaxT = 1.0e7f;
-
 struct RendererData
 {
     int frameCount;
@@ -49,27 +46,6 @@ struct RendererData
 
     f3* colors;
 };
-
-static int TracePixels(RendererData data)
-{
-    float* backbuffer = data.backbuffer;
-    float invWidth = 1.0f / data.screenWidth;
-    float invHeight = 1.0f / data.screenHeight;
-    float lerpFac = float(data.frameCount) / float(data.frameCount + 1);
-#if !DO_PROGRESSIVE
-    lerpFac = 0;
-#endif
-    int rayCount = 0;
-
-    // startFrame renders the primary rays, that's why depth starts from 1
-    deviceStartFrame(data.frameCount, kMinT, kMaxT);
-
-    // trace all samples through the scene
-    for (int depth = 1; depth <= kMaxDepth; depth++)
-        deviceRenderFrame(kMinT, kMaxT, depth);
-
-    return rayCount;
-}
 
 void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCount)
 {
@@ -94,16 +70,11 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCou
     args.numRays = numRays;
 
     deviceInitData(&s_Cam, screenWidth, screenHeight, s_Spheres, s_SphereMats, kSphereCount, numRays);
-    if (kNumFrames == 100) outRayCount = 854547701; // 854238240; // 854161957;
-    else if (kNumFrames == 1000) outRayCount = 4246579592;
 
     for (int frame = 0; frame < kNumFrames; frame++)
-    {
-        args.frameCount = frame;
-        outRayCount += TracePixels(args);
-    }
+        deviceRenderFrame(frame);
 
-    deviceEndRendering(args.colors);
+    deviceEndRendering(args.colors, outRayCount);
 
     // compute cumulated color for all samples
     const float devider = 1.0f / float(kNumFrames*DO_SAMPLES_PER_PIXEL);

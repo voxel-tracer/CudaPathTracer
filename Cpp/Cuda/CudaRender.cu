@@ -54,22 +54,13 @@ struct cCamera
 
 struct DeviceData
 {
-    float *rays_orig_x;
-    float *rays_orig_y;
-    float *rays_orig_z;
-    float *rays_dir_x;
-    float *rays_dir_y;
-    float *rays_dir_z;
-    bool *rays_done;
-
     float *clr_x;
     float *clr_y;
     float *clr_z;
     float *atn_x;
     float *atn_y;
     float *atn_z;
-
-    float *h_tmp;
+    uint *ray_count;
 
     cCamera* camera;
     uint numRays;
@@ -322,7 +313,7 @@ __device__ cRay generateRay(const uint x, const uint y, const DeviceData& data, 
     return cRay(ray_orig, ray_dir);
 }
 
-__global__ void primary(const DeviceData data, float tMin, float tMax)
+__global__ void renderFrameKernel(const DeviceData data)
 {
     const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
     if (rIdx >= data.numRays)
@@ -335,9 +326,6 @@ __global__ void primary(const DeviceData data, float tMin, float tMax)
 
     cRay r = generateRay(x, y, data, state);
 
-    float hit_t;
-    int hit_id = hitWorld(r, hit_t, tMin, tMax);
-
     float3 color = make_float3(
         data.clr_x[rIdx],
         data.clr_y[rIdx],
@@ -345,30 +333,24 @@ __global__ void primary(const DeviceData data, float tMin, float tMax)
     );
     float3 attenuation = make_float3(1);
     bool ray_done = false;
-    if (hit_id >= 0)
+    uint depth = 0;
+    while (depth < kMaxDepth && !ray_done)
     {
-        cRay scattered;
+        float hit_t;
+        int hit_id = hitWorld(r, hit_t, kMinT, kMaxT);
 
-        bool not_done = scatterHit(r, hit_id, hit_t, 0, data, state, color, attenuation, scattered);
-        if (not_done)
+        if (hit_id >= 0)
         {
-            data.rays_orig_x[rIdx] = scattered.orig.x;
-            data.rays_orig_y[rIdx] = scattered.orig.y;
-            data.rays_orig_z[rIdx] = scattered.orig.z;
-            data.rays_dir_x[rIdx] = scattered.dir.x;
-            data.rays_dir_y[rIdx] = scattered.dir.y;
-            data.rays_dir_z[rIdx] = scattered.dir.z;
+            ray_done = !scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, r);
         }
         else
         {
+            // sky
+            scatterNoHit(r.dir, color, attenuation);
             ray_done = true;
         }
-    }
-    else
-    {
-        // sky
-        scatterNoHit(r.dir, color, attenuation);
-        ray_done = true;
+
+        depth++;
     }
 
     data.clr_x[rIdx] = color.x;
@@ -379,79 +361,7 @@ __global__ void primary(const DeviceData data, float tMin, float tMax)
     data.atn_y[rIdx] = attenuation.y;
     data.atn_z[rIdx] = attenuation.z;
 
-    data.rays_done[rIdx] = ray_done;
-}
-
-__global__ void secondary(const DeviceData data, const uint depth, float tMin, float tMax)
-{
-    const int rIdx = blockIdx.x*blockDim.x + threadIdx.x;
-    if (rIdx >= data.numRays)
-        return;
-
-    if (data.rays_done[rIdx])
-        return;
-
-    const float3 ray_orig = make_float3(
-        data.rays_orig_x[rIdx],
-        data.rays_orig_y[rIdx],
-        data.rays_orig_z[rIdx]);
-    const float3 ray_dir = make_float3(
-        data.rays_dir_x[rIdx],
-        data.rays_dir_y[rIdx],
-        data.rays_dir_z[rIdx]);
-
-    const cRay r(ray_orig, ray_dir);
-
-    float hit_t;
-    int hit_id = hitWorld(r, hit_t, tMin, tMax);
-
-    uint state = (cWang_hash(rIdx) + (data.frame*kMaxDepth + depth) * 101141101) * 336343633;
-
-    float3 color = make_float3(
-        data.clr_x[rIdx],
-        data.clr_y[rIdx],
-        data.clr_z[rIdx]
-    );
-    float3 attenuation = make_float3(
-        data.atn_x[rIdx],
-        data.atn_y[rIdx],
-        data.atn_z[rIdx]
-    );
-
-    if (hit_id >= 0)
-    {
-        cRay scattered;
-
-        bool not_done = scatterHit(r, hit_id, hit_t, depth, data, state, color, attenuation, scattered);
-        if (not_done)
-        {
-            data.rays_orig_x[rIdx] = scattered.orig.x;
-            data.rays_orig_y[rIdx] = scattered.orig.y;
-            data.rays_orig_z[rIdx] = scattered.orig.z;
-            data.rays_dir_x[rIdx] = scattered.dir.x;
-            data.rays_dir_y[rIdx] = scattered.dir.y;
-            data.rays_dir_z[rIdx] = scattered.dir.z;
-        }
-        else
-        {
-            data.rays_done[rIdx] = true;
-        }
-    }
-    else
-    {
-        // sky
-        scatterNoHit(r.dir, color, attenuation);
-        data.rays_done[rIdx] = true;
-    }
-
-    data.clr_x[rIdx] = color.x;
-    data.clr_y[rIdx] = color.y;
-    data.clr_z[rIdx] = color.z;
-
-    //TODO no need to write this in the last depth iteration
-    data.atn_x[rIdx] = attenuation.x;
-    data.atn_y[rIdx] = attenuation.y;
-    data.atn_z[rIdx] = attenuation.z;
+    data.ray_count[rIdx] += depth;
 }
 
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
@@ -460,17 +370,6 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     deviceData.width = width;
     deviceData.height = height;
 
-    cudaMallocHost((void**)&deviceData.h_tmp, numRays * sizeof(float));
-
-    // allocate device memory
-    cudaMalloc((void**)&deviceData.rays_orig_x, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_orig_y, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_orig_z, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_dir_x, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_dir_y, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_dir_z, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.rays_done, numRays * sizeof(bool));
-
     cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.clr_z, numRays * sizeof(float));
@@ -478,9 +377,12 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMalloc((void**)&deviceData.atn_y, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.atn_z, numRays * sizeof(float));
 
+    cudaMalloc((void**)&deviceData.ray_count, numRays * sizeof(uint));
+
     cudaMemsetAsync((void*)deviceData.clr_x, 0, numRays * sizeof(float));
     cudaMemsetAsync((void*)deviceData.clr_y, 0, numRays * sizeof(float));
     cudaMemsetAsync((void*)deviceData.clr_z, 0, numRays * sizeof(float));
+    cudaMemsetAsync((void*)deviceData.ray_count, 0, numRays * sizeof(uint));
 
     cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
 
@@ -491,57 +393,52 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
 }
 
-void deviceStartFrame(const uint frame, const float tMin, const float tMax) {
+void deviceRenderFrame(const uint frame) {
     deviceData.frame = frame;
-
     // call kernel
     const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
-    primary <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, tMin, tMax);
+    renderFrameKernel <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
 }
 
-void deviceRenderFrame(const float tMin, const float tMax, const uint depth)
-{
-    // call kernel
-    const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
-
-    secondary <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData, depth, tMin, tMax);
-}
-
-void deviceEndRendering(f3* colors)
+void deviceEndRendering(f3* colors, int& rayCount)
 {
     const uint numRays = deviceData.numRays;
 
+    float *f_tmp;
+    cudaMallocHost((void**)&f_tmp, numRays * sizeof(float));
+    uint *i_tmp;
+    cudaMallocHost((void**)&i_tmp, numRays * sizeof(uint));
+
     // copy samples to host
-    cudaMemcpy(deviceData.h_tmp, deviceData.clr_x, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(f_tmp, deviceData.clr_x, numRays * sizeof(float), cudaMemcpyDeviceToHost);
     for (uint i = 0; i < numRays; i++)
-        colors[i].x = deviceData.h_tmp[i];
+        colors[i].x = f_tmp[i];
 
-    cudaMemcpy(deviceData.h_tmp, deviceData.clr_y, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(f_tmp, deviceData.clr_y, numRays * sizeof(float), cudaMemcpyDeviceToHost);
     for (uint i = 0; i < numRays; i++)
-        colors[i].y = deviceData.h_tmp[i];
+        colors[i].y = f_tmp[i];
 
-    cudaMemcpy(deviceData.h_tmp, deviceData.clr_z, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(f_tmp, deviceData.clr_z, numRays * sizeof(float), cudaMemcpyDeviceToHost);
     for (uint i = 0; i < numRays; i++)
-        colors[i].z = deviceData.h_tmp[i];
+        colors[i].z = f_tmp[i];
+
+    cudaMemcpy(i_tmp, deviceData.ray_count, numRays * sizeof(uint), cudaMemcpyDeviceToHost);
+    for (uint i = 0; i < numRays; i++)
+        rayCount += i_tmp[i];
+
+    cudaFree(f_tmp);
+    cudaFree(i_tmp);
 }
 
 void deviceFreeData()
 {
-    cudaFree(deviceData.rays_orig_x);
-    cudaFree(deviceData.rays_orig_y);
-    cudaFree(deviceData.rays_orig_z);
-    cudaFree(deviceData.rays_dir_x);
-    cudaFree(deviceData.rays_dir_y);
-    cudaFree(deviceData.rays_dir_z);
-    cudaFree(deviceData.rays_done);
-
     cudaFree(deviceData.clr_x);
     cudaFree(deviceData.clr_y);
     cudaFree(deviceData.clr_z);
     cudaFree(deviceData.atn_x);
     cudaFree(deviceData.atn_y);
     cudaFree(deviceData.atn_z);
-    cudaFree(deviceData.h_tmp);
+    cudaFree(deviceData.ray_count);
 
     cudaFree(deviceData.camera);
 }
