@@ -1,3 +1,3 @@
 #pragma once
 
-void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCount);
+void Render(int screenWidth, int screenHeight, float* backbuffer, unsigned long& outRayCount);

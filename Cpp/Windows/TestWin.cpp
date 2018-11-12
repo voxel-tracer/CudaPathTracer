@@ -37,12 +37,12 @@ int main(int argc, char** argv) {
 
     // Main rendering loop
     const clock_t start_time = clock();
-    int rayCounter = 0;
+    unsigned long rayCounter = 0;
 
     Render(kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCounter);
 
     const float duration = (float) (clock() - start_time) / CLOCKS_PER_SEC;
-    printf("total %d rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, rayCounter / duration * 1.0e-6f);
+    printf("total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, rayCounter / duration * 1.0e-6f);
 
     write_image("image.png");
 

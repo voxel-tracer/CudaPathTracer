@@ -47,7 +47,7 @@ struct RendererData
     f3* colors;
 };
 
-void Render(int screenWidth, int screenHeight, float* backbuffer, int& outRayCount)
+void Render(int screenWidth, int screenHeight, float* backbuffer, unsigned long& outRayCount)
 {
     f3 lookfrom(0, 2, 3);
     f3 lookat(0, 0, 0);

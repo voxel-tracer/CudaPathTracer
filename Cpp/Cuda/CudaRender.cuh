@@ -9,6 +9,6 @@
 void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays);
 
 void deviceRenderFrame(const uint frame);
-void deviceEndRendering(f3* colors, int& rayCount);
+void deviceEndRendering(f3* colors, unsigned long& rayCount);
 
 void deviceFreeData();

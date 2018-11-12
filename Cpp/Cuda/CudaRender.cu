@@ -400,7 +400,7 @@ void deviceRenderFrame(const uint frame) {
     renderFrameKernel <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
 }
 
-void deviceEndRendering(f3* colors, int& rayCount)
+void deviceEndRendering(f3* colors, unsigned long& rayCount)
 {
     const uint numRays = deviceData.numRays;
 
