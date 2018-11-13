@@ -47,7 +47,7 @@ struct RendererData
     f3* colors;
 };
 
-void Render(int screenWidth, int screenHeight, float* backbuffer, unsigned long& outRayCount)
+void Render(int screenWidth, int screenHeight, const unsigned int numFrames, const unsigned int samplesPerPixel, const unsigned int threadsPerBlock, float* backbuffer, unsigned long& outRayCount)
 {
     f3 lookfrom(0, 2, 3);
     f3 lookat(0, 0, 0);
@@ -57,7 +57,7 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, unsigned long&
     s_Cam = Camera(lookfrom, lookat, f3(0, 1, 0), 60, float(screenWidth) / float(screenHeight), aperture, distToFocus);
 
     // let's allocate a few arrays needed by the renderer
-    int numRays = screenWidth * screenHeight * DO_SAMPLES_PER_PIXEL;
+    int numRays = screenWidth * screenHeight * samplesPerPixel;
 
     f3* colors = new f3[numRays];
 
@@ -69,19 +69,19 @@ void Render(int screenWidth, int screenHeight, float* backbuffer, unsigned long&
     args.colors = colors;
     args.numRays = numRays;
 
-    deviceInitData(&s_Cam, screenWidth, screenHeight, s_Spheres, s_SphereMats, kSphereCount, numRays);
+    deviceInitData(&s_Cam, screenWidth, screenHeight, samplesPerPixel, threadsPerBlock, s_Spheres, s_SphereMats, kSphereCount, numRays);
 
-    for (int frame = 0; frame < kNumFrames; frame++)
+    for (int frame = 0; frame < numFrames; frame++)
         deviceRenderFrame(frame);
 
     deviceEndRendering(args.colors, outRayCount);
 
     // compute cumulated color for all samples
-    const float devider = 1.0f / float(kNumFrames*DO_SAMPLES_PER_PIXEL);
+    const float devider = 1.0f / float(numFrames*samplesPerPixel);
     for (int y = 0, rIdx = 0; y < args.screenHeight; y++) {
         for (int x = 0; x < args.screenWidth; x++) {
             f3 col(0, 0, 0);
-            for (int s = 0; s < DO_SAMPLES_PER_PIXEL; s++, ++rIdx)
+            for (int s = 0; s < samplesPerPixel; s++, ++rIdx)
                 col += args.colors[rIdx];
             col *= devider;
 

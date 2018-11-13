@@ -67,6 +67,8 @@ struct DeviceData
     uint frame;
     uint width;
     uint height;
+    uint samplesPerPixel;
+    uint threadsPerBlock;
 };
 
 DeviceData deviceData;
@@ -319,9 +321,9 @@ __global__ void renderFrameKernel(const DeviceData data)
     if (rIdx >= data.numRays)
         return;
 
-    const uint w = data.width*DO_SAMPLES_PER_PIXEL;
+    const uint w = data.width*data.samplesPerPixel;
     const uint y = rIdx / w;
-    const uint x = (rIdx % w) / DO_SAMPLES_PER_PIXEL;
+    const uint x = (rIdx % w) / data.samplesPerPixel;
     uint state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
 
     cRay r = generateRay(x, y, data, state);
@@ -364,11 +366,13 @@ __global__ void renderFrameKernel(const DeviceData data)
     data.ray_count[rIdx] += depth;
 }
 
-void deviceInitData(const Camera* camera, const uint width, const uint height, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
+void deviceInitData(const Camera* camera, const uint width, const uint height, const uint samplesPerPixel, const uint threadsPerBlock, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
 {
     deviceData.numRays = numRays;
     deviceData.width = width;
     deviceData.height = height;
+    deviceData.samplesPerPixel = samplesPerPixel;
+    deviceData.threadsPerBlock = threadsPerBlock;
 
     cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float));
     cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float));
@@ -396,8 +400,8 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
 void deviceRenderFrame(const uint frame) {
     deviceData.frame = frame;
     // call kernel
-    const int blocksPerGrid = ceilf((float)deviceData.numRays / kThreadsPerBlock);
-    renderFrameKernel <<<blocksPerGrid, kThreadsPerBlock >>> (deviceData);
+    const uint blocksPerGrid = ceilf((float)deviceData.numRays / deviceData.threadsPerBlock);
+    renderFrameKernel <<<blocksPerGrid, deviceData.threadsPerBlock >>> (deviceData);
 }
 
 void deviceEndRendering(f3* colors, unsigned long& rayCount)

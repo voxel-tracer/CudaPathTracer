@@ -32,13 +32,13 @@ void write_image(const char* output_file) {
     delete[] data;
 }
 
-float render()
+float render(const unsigned int numFrames, const unsigned int samplesPerPixel, const unsigned int threadsPerBlock)
 {
     unsigned long rayCounter = 0;
 
     const clock_t start_time = clock();
 
-    Render(kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCounter);
+    Render(kBackbufferWidth, kBackbufferHeight, numFrames, samplesPerPixel, threadsPerBlock, g_Backbuffer, rayCounter);
 
     const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
     const float throughput = rayCounter / duration * 1.0e-6f;
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < 10; i++)
     {
-        float throughput = render();
+        float throughput = render(100, 4, 128);
         fflush(stdout);
 
         v.push_back(throughput);
