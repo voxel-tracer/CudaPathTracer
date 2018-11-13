@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <algorithm>
+#include <vector>
 
 #define STBI_MSC_SECURE_CRT
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -31,18 +32,38 @@ void write_image(const char* output_file) {
     delete[] data;
 }
 
+float render()
+{
+    unsigned long rayCounter = 0;
+
+    const clock_t start_time = clock();
+
+    Render(kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCounter);
+
+    const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
+    const float throughput = rayCounter / duration * 1.0e-6f;
+    printf("total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
+    return throughput;
+}
+
 int main(int argc, char** argv) {
     g_Backbuffer = new float[kBackbufferWidth * kBackbufferHeight * 4];
     memset(g_Backbuffer, 0, kBackbufferWidth * kBackbufferHeight * 4 * sizeof(g_Backbuffer[0]));
 
     // Main rendering loop
-    const clock_t start_time = clock();
-    unsigned long rayCounter = 0;
+    std::vector<float> v;
 
-    Render(kBackbufferWidth, kBackbufferHeight, g_Backbuffer, rayCounter);
+    for (int i = 0; i < 10; i++)
+    {
+        float throughput = render();
+        fflush(stdout);
 
-    const float duration = (float) (clock() - start_time) / CLOCKS_PER_SEC;
-    printf("total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, rayCounter / duration * 1.0e-6f);
+        v.push_back(throughput);
+    }
+
+    std::sort(v.begin(), v.end());
+    float median = (v[5] + v[6]) / 2;
+    printf("median throughput %.1fM rays/s\n", median);
 
     write_image("image.png");
 
