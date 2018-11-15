@@ -430,8 +430,8 @@ void deviceEndRendering(f3* colors, unsigned long& rayCount)
     for (uint i = 0; i < numRays; i++)
         rayCount += i_tmp[i];
 
-    cudaFree(f_tmp);
-    cudaFree(i_tmp);
+    cudaFreeHost(f_tmp);
+    cudaFreeHost(i_tmp);
 }
 
 void deviceFreeData()

@@ -13,8 +13,6 @@
 #include "../Source/Config.h"
 #include "../Source/Test.h"
 
-static size_t RenderFrame();
-
 static float* g_Backbuffer;
 
 void write_image(const char* output_file) {
@@ -42,30 +40,44 @@ float render(const unsigned int numFrames, const unsigned int samplesPerPixel, c
 
     const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
     const float throughput = rayCounter / duration * 1.0e-6f;
-    printf("total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
+    //printf("   total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
     return throughput;
 }
 
 int main(int argc, char** argv) {
+    unsigned int numFrames[3] = { 100, 200, 400 };
+    unsigned int numSamples[6] = { 1, 2, 4, 8, 16, 32 };
+    unsigned int numThreads[8] = { 32, 64, 96, 128, 160, 182, 224, 256 };
+
     g_Backbuffer = new float[kBackbufferWidth * kBackbufferHeight * 4];
     memset(g_Backbuffer, 0, kBackbufferWidth * kBackbufferHeight * 4 * sizeof(g_Backbuffer[0]));
 
-    // Main rendering loop
-    std::vector<float> v;
-
-    for (int i = 0; i < 10; i++)
+    for (int frame = 0; frame < 3; frame++)
     {
-        float throughput = render(100, 4, 128);
-        fflush(stdout);
+        for (int sample = 0; sample < 6; sample++)
+        {
+            for (int threads = 0; threads < 8; threads++)
+            {
+                printf("%d frames, %d samples, %d threads\n", numFrames[frame], numSamples[sample], numThreads[threads]);
 
-        v.push_back(throughput);
+                std::vector<float> v;
+
+                for (int i = 0; i < 10; i++)
+                {
+                    float throughput = render(numFrames[frame], numSamples[sample], numThreads[threads]);
+                    fflush(stdout);
+
+                    v.push_back(throughput);
+                }
+
+                std::sort(v.begin(), v.end());
+                float median = (v[5] + v[6]) / 2;
+                printf("  median throughput %.1fM rays/s\n", median);
+            }
+        }
     }
 
-    std::sort(v.begin(), v.end());
-    float median = (v[5] + v[6]) / 2;
-    printf("median throughput %.1fM rays/s\n", median);
-
-    write_image("image.png");
+    //write_image("image.png");
 
     return 0;
 }
