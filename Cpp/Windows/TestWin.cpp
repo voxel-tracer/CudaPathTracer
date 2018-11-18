@@ -30,9 +30,9 @@ void write_image(const char* output_file) {
     delete[] data;
 }
 
-float render(const unsigned int numFrames, const unsigned int samplesPerPixel, const unsigned int threadsPerBlock)
+float render(const int numFrames, const int samplesPerPixel, const int threadsPerBlock)
 {
-    unsigned long rayCounter = 0;
+    unsigned long long rayCounter = 0;
 
     const clock_t start_time = clock();
 
@@ -40,39 +40,50 @@ float render(const unsigned int numFrames, const unsigned int samplesPerPixel, c
 
     const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
     const float throughput = rayCounter / duration * 1.0e-6f;
-    //printf("   total %lu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
+    //printf("   total %llu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
     return throughput;
 }
 
 int main(int argc, char** argv) {
-    unsigned int numFrames[3] = { 100, 200, 400 };
-    unsigned int numSamples[6] = { 1, 2, 4, 8, 16, 32 };
-    unsigned int numThreads[8] = { 32, 64, 96, 128, 160, 182, 224, 256 };
+    const int frames[] = { 200 };
+    const int numFrames = sizeof(frames) / sizeof(int);
+    const int samples[] = { 16, 32 };
+    const int numSamples = sizeof(samples) / sizeof(int);
+    const int threads[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    const int numThreads = sizeof(threads) / sizeof(int);
+
+    const bool compute_median = true;
 
     g_Backbuffer = new float[kBackbufferWidth * kBackbufferHeight * 4];
     memset(g_Backbuffer, 0, kBackbufferWidth * kBackbufferHeight * 4 * sizeof(g_Backbuffer[0]));
 
-    for (int frame = 0; frame < 3; frame++)
+    for (int f = 0; f < numFrames; f++)
     {
-        for (int sample = 0; sample < 6; sample++)
+        for (int s = 0; s < numSamples; s++)
         {
-            for (int threads = 0; threads < 8; threads++)
+            for (int t = 0; t < numThreads; t++)
             {
-                printf("%d frames, %d samples, %d threads\n", numFrames[frame], numSamples[sample], numThreads[threads]);
+                int num_threads = threads[t] * 32;
+                printf("%d frames, %d samples, %d threads\n", frames[f], samples[s], num_threads);
 
-                std::vector<float> v;
+                if (compute_median) {
+                    std::vector<float> v;
 
-                for (int i = 0; i < 10; i++)
-                {
-                    float throughput = render(numFrames[frame], numSamples[sample], numThreads[threads]);
-                    fflush(stdout);
+                    for (int i = 0; i < 10; i++)
+                    {
+                        float throughput = render(frames[f], samples[s], num_threads);
+                        fflush(stdout);
 
-                    v.push_back(throughput);
+                        v.push_back(throughput);
+                    }
+
+                    std::sort(v.begin(), v.end());
+                    float median = (v[5] + v[6]) / 2;
+                    printf("  median throughput %.1fM rays/s\n", median);
                 }
-
-                std::sort(v.begin(), v.end());
-                float median = (v[5] + v[6]) / 2;
-                printf("  median throughput %.1fM rays/s\n", median);
+                else {
+                    render(frames[f], samples[s], num_threads);
+                }
             }
         }
     }
