@@ -1,6 +1,17 @@
 #include "CudaRender.cuh"
 #include "../Source/Config.h"
+#include <stdlib.h>
+#include <stdio.h>
 
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort = true)
+{
+    if (code != cudaSuccess)
+    {
+        fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+        if (abort) exit(code);
+    }
+}
 __device__ float3 cRandomInUnitDisk(uint& state);
 
 struct cRay
@@ -374,27 +385,27 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     deviceData.samplesPerPixel = samplesPerPixel;
     deviceData.threadsPerBlock = threadsPerBlock;
 
-    cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.clr_z, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.atn_x, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.atn_y, numRays * sizeof(float));
-    cudaMalloc((void**)&deviceData.atn_z, numRays * sizeof(float));
+    gpuErrchk(cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float)));
+    gpuErrchk(cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float)));
+    gpuErrchk(cudaMalloc((void**)&deviceData.clr_z, numRays * sizeof(float)));
+    gpuErrchk(cudaMalloc((void**)&deviceData.atn_x, numRays * sizeof(float)));
+    gpuErrchk(cudaMalloc((void**)&deviceData.atn_y, numRays * sizeof(float)));
+    gpuErrchk(cudaMalloc((void**)&deviceData.atn_z, numRays * sizeof(float)));
 
-    cudaMalloc((void**)&deviceData.ray_count, numRays * sizeof(uint));
+    gpuErrchk(cudaMalloc((void**)&deviceData.ray_count, numRays * sizeof(uint)));
 
-    cudaMemsetAsync((void*)deviceData.clr_x, 0, numRays * sizeof(float));
-    cudaMemsetAsync((void*)deviceData.clr_y, 0, numRays * sizeof(float));
-    cudaMemsetAsync((void*)deviceData.clr_z, 0, numRays * sizeof(float));
-    cudaMemsetAsync((void*)deviceData.ray_count, 0, numRays * sizeof(uint));
+    gpuErrchk(cudaMemsetAsync((void*)deviceData.clr_x, 0, numRays * sizeof(float)));
+    gpuErrchk(cudaMemsetAsync((void*)deviceData.clr_y, 0, numRays * sizeof(float)));
+    gpuErrchk(cudaMemsetAsync((void*)deviceData.clr_z, 0, numRays * sizeof(float)));
+    gpuErrchk(cudaMemsetAsync((void*)deviceData.ray_count, 0, numRays * sizeof(uint)));
 
-    cudaMalloc((void**)&deviceData.camera, sizeof(cCamera));
+    gpuErrchk(cudaMalloc((void**)&deviceData.camera, sizeof(cCamera)));
 
     // copy spheres and materials to device
-    cudaMemcpyToSymbol(d_spheres, spheres, kSphereCount * sizeof(cSphere));
-    cudaMemcpyToSymbol(d_materials, materials, kSphereCount * sizeof(cMaterial));
+    gpuErrchk(cudaMemcpyToSymbol(d_spheres, spheres, kSphereCount * sizeof(cSphere)));
+    gpuErrchk(cudaMemcpyToSymbol(d_materials, materials, kSphereCount * sizeof(cMaterial)));
 
-    cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice);
+    gpuErrchk(cudaMemcpy(deviceData.camera, camera, sizeof(cCamera), cudaMemcpyHostToDevice));
 }
 
 void deviceRenderFrame(const uint frame) {
@@ -409,40 +420,40 @@ void deviceEndRendering(f3* colors, unsigned long long& rayCount)
     const uint numRays = deviceData.numRays;
 
     float *f_tmp;
-    cudaMallocHost((void**)&f_tmp, numRays * sizeof(float));
+    gpuErrchk(cudaMallocHost((void**)&f_tmp, numRays * sizeof(float)));
     uint *i_tmp;
-    cudaMallocHost((void**)&i_tmp, numRays * sizeof(uint));
+    gpuErrchk(cudaMallocHost((void**)&i_tmp, numRays * sizeof(uint)));
 
     // copy samples to host
-    cudaMemcpy(f_tmp, deviceData.clr_x, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    gpuErrchk(cudaMemcpy(f_tmp, deviceData.clr_x, numRays * sizeof(float), cudaMemcpyDeviceToHost));
     for (uint i = 0; i < numRays; i++)
         colors[i].x = f_tmp[i];
 
-    cudaMemcpy(f_tmp, deviceData.clr_y, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    gpuErrchk(cudaMemcpy(f_tmp, deviceData.clr_y, numRays * sizeof(float), cudaMemcpyDeviceToHost));
     for (uint i = 0; i < numRays; i++)
         colors[i].y = f_tmp[i];
 
-    cudaMemcpy(f_tmp, deviceData.clr_z, numRays * sizeof(float), cudaMemcpyDeviceToHost);
+    gpuErrchk(cudaMemcpy(f_tmp, deviceData.clr_z, numRays * sizeof(float), cudaMemcpyDeviceToHost));
     for (uint i = 0; i < numRays; i++)
         colors[i].z = f_tmp[i];
 
-    cudaMemcpy(i_tmp, deviceData.ray_count, numRays * sizeof(uint), cudaMemcpyDeviceToHost);
+    gpuErrchk(cudaMemcpy(i_tmp, deviceData.ray_count, numRays * sizeof(uint), cudaMemcpyDeviceToHost));
     for (uint i = 0; i < numRays; i++)
         rayCount += i_tmp[i];
 
-    cudaFreeHost(f_tmp);
-    cudaFreeHost(i_tmp);
+    gpuErrchk(cudaFreeHost(f_tmp));
+    gpuErrchk(cudaFreeHost(i_tmp));
 }
 
 void deviceFreeData()
 {
-    cudaFree(deviceData.clr_x);
-    cudaFree(deviceData.clr_y);
-    cudaFree(deviceData.clr_z);
-    cudaFree(deviceData.atn_x);
-    cudaFree(deviceData.atn_y);
-    cudaFree(deviceData.atn_z);
-    cudaFree(deviceData.ray_count);
+    gpuErrchk(cudaFree(deviceData.clr_x));
+    gpuErrchk(cudaFree(deviceData.clr_y));
+    gpuErrchk(cudaFree(deviceData.clr_z));
+    gpuErrchk(cudaFree(deviceData.atn_x));
+    gpuErrchk(cudaFree(deviceData.atn_y));
+    gpuErrchk(cudaFree(deviceData.atn_z));
+    gpuErrchk(cudaFree(deviceData.ray_count));
 
-    cudaFree(deviceData.camera);
+    gpuErrchk(cudaFree(deviceData.camera));
 }
