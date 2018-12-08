@@ -30,7 +30,7 @@ void write_image(const char* output_file) {
     delete[] data;
 }
 
-float render(const int numFrames, const int samplesPerPixel, const int threadsPerBlock)
+float render(const int numFrames, const int samplesPerPixel, const int threadsPerBlock, bool verbose)
 {
     unsigned long long rayCounter = 0;
 
@@ -40,19 +40,22 @@ float render(const int numFrames, const int samplesPerPixel, const int threadsPe
 
     const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
     const float throughput = rayCounter / duration * 1.0e-6f;
-    //printf("   total %llu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
+
+    if (verbose)
+        printf("   total %llu rays in %.2fs (%.1fMrays/s)\n", rayCounter, duration, throughput);
+
     return throughput;
 }
 
 int main(int argc, char** argv) {
-    const int frames[] = { 200 };
+    const int frames[] = { 50 };
     const int numFrames = sizeof(frames) / sizeof(int);
-    const int samples[] = { 16, 32 };
+    const int samples[] = { 4 };
     const int numSamples = sizeof(samples) / sizeof(int);
-    const int threads[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    const int threads[] = { 4 };
     const int numThreads = sizeof(threads) / sizeof(int);
 
-    const bool compute_median = true;
+    const bool compute_median = false;
 
     g_Backbuffer = new float[kBackbufferWidth * kBackbufferHeight * 4];
     memset(g_Backbuffer, 0, kBackbufferWidth * kBackbufferHeight * 4 * sizeof(g_Backbuffer[0]));
@@ -71,7 +74,7 @@ int main(int argc, char** argv) {
 
                     for (int i = 0; i < 10; i++)
                     {
-                        float throughput = render(frames[f], samples[s], num_threads);
+                        float throughput = render(frames[f], samples[s], num_threads, false);
                         fflush(stdout);
 
                         v.push_back(throughput);
@@ -82,13 +85,14 @@ int main(int argc, char** argv) {
                     printf("  median throughput %.1fM rays/s\n", median);
                 }
                 else {
-                    render(frames[f], samples[s], num_threads);
+                    render(frames[f], samples[s], num_threads, true);
                 }
             }
         }
     }
 
-    //write_image("image.png");
+    if (!compute_median)
+        write_image("image.png");
 
     return 0;
 }
