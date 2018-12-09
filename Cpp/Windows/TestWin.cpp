@@ -30,13 +30,13 @@ void write_image(const char* output_file) {
     delete[] data;
 }
 
-float render(const int numFrames, const int samplesPerPixel, const int threadsPerBlock, bool verbose)
+float render(const int numFrames, const int samplesPerPixel, const int threadsPerBlock, const int maxDepth, bool verbose)
 {
     unsigned long long rayCounter = 0;
 
     const clock_t start_time = clock();
 
-    Render(kBackbufferWidth, kBackbufferHeight, numFrames, samplesPerPixel, threadsPerBlock, g_Backbuffer, rayCounter);
+    Render(kBackbufferWidth, kBackbufferHeight, numFrames, samplesPerPixel, threadsPerBlock, maxDepth, g_Backbuffer, rayCounter);
 
     const float duration = (float)(clock() - start_time) / CLOCKS_PER_SEC;
     const float throughput = rayCounter / duration * 1.0e-6f;
@@ -48,12 +48,14 @@ float render(const int numFrames, const int samplesPerPixel, const int threadsPe
 }
 
 int main(int argc, char** argv) {
-    const int frames[] = { 50 };
+    const int frames[] = { 10 };
     const int numFrames = sizeof(frames) / sizeof(int);
     const int samples[] = { 4 };
     const int numSamples = sizeof(samples) / sizeof(int);
     const int threads[] = { 4 };
     const int numThreads = sizeof(threads) / sizeof(int);
+    const int depths[] = { 10 };
+    const int numDepths = sizeof(depths) / sizeof(int);
 
     const bool compute_median = false;
 
@@ -67,25 +69,28 @@ int main(int argc, char** argv) {
             for (int t = 0; t < numThreads; t++)
             {
                 int num_threads = threads[t] * 32;
-                printf("%d frames, %d samples, %d threads\n", frames[f], samples[s], num_threads);
+                for (int d = 0; d < numDepths; d++)
+                {
+                    printf("%d frames, %d samples, %d threads, %d max_depth\n", frames[f], samples[s], num_threads, depths[d]);
 
-                if (compute_median) {
-                    std::vector<float> v;
+                    if (compute_median) {
+                        std::vector<float> v;
 
-                    for (int i = 0; i < 10; i++)
-                    {
-                        float throughput = render(frames[f], samples[s], num_threads, false);
-                        fflush(stdout);
+                        for (int i = 0; i < 10; i++)
+                        {
+                            float throughput = render(frames[f], samples[s], num_threads, depths[d], true);
+                            fflush(stdout);
 
-                        v.push_back(throughput);
+                            v.push_back(throughput);
+                        }
+
+                        std::sort(v.begin(), v.end());
+                        float median = (v[5] + v[6]) / 2;
+                        printf("  median throughput %.1fM rays/s\n", median);
                     }
-
-                    std::sort(v.begin(), v.end());
-                    float median = (v[5] + v[6]) / 2;
-                    printf("  median throughput %.1fM rays/s\n", median);
-                }
-                else {
-                    render(frames[f], samples[s], num_threads, true);
+                    else {
+                        render(frames[f], samples[s], num_threads, depths[d], true);
+                    }
                 }
             }
         }

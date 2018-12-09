@@ -80,6 +80,7 @@ struct DeviceData
     uint height;
     uint samplesPerPixel;
     uint threadsPerBlock;
+    uint maxDepth;
 };
 
 DeviceData deviceData;
@@ -299,7 +300,7 @@ __device__ bool scatterHit(const cRay& ray, const int hit_id, const float hit_t,
     const cMaterial mat = d_materials[hit_id];
     float3 local_attenuation;
     color += mat.emissive * attenuation;
-    if (depth < kMaxDepth && ScatterNoLightSampling(data, mat, ray, hit_t, hit_id, local_attenuation, scattered, state))
+    if (depth < data.maxDepth && ScatterNoLightSampling(data, mat, ray, hit_t, hit_id, local_attenuation, scattered, state))
     {
         attenuation *= local_attenuation;
         return true;
@@ -335,7 +336,7 @@ __global__ void renderFrameKernel(const DeviceData data)
     const uint w = data.width*data.samplesPerPixel;
     const uint y = rIdx / w;
     const uint x = (rIdx % w) / data.samplesPerPixel;
-    uint state = ((cWang_hash(rIdx) + (data.frame*kMaxDepth) * 101141101) * 336343633) | 1;
+    uint state = ((cWang_hash(rIdx) + (data.frame*data.maxDepth) * 101141101) * 336343633) | 1;
 
     cRay r = generateRay(x, y, data, state);
 
@@ -347,7 +348,7 @@ __global__ void renderFrameKernel(const DeviceData data)
     float3 attenuation = make_float3(1);
     bool ray_done = false;
     uint depth = 0;
-    while (depth < kMaxDepth && !ray_done)
+    while (depth < data.maxDepth && !ray_done)
     {
         float hit_t;
         int hit_id = hitWorld(r, hit_t, kMinT, kMaxT);
@@ -377,13 +378,14 @@ __global__ void renderFrameKernel(const DeviceData data)
     data.ray_count[rIdx] += depth;
 }
 
-void deviceInitData(const Camera* camera, const uint width, const uint height, const uint samplesPerPixel, const uint threadsPerBlock, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays)
+void deviceInitData(const Camera* camera, const uint width, const uint height, const uint samplesPerPixel, const uint threadsPerBlock, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, const uint maxDepth)
 {
     deviceData.numRays = numRays;
     deviceData.width = width;
     deviceData.height = height;
     deviceData.samplesPerPixel = samplesPerPixel;
     deviceData.threadsPerBlock = threadsPerBlock;
+    deviceData.maxDepth = maxDepth;
 
     gpuErrchk(cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float)));
     gpuErrchk(cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float)));

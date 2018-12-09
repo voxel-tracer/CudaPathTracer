@@ -47,7 +47,7 @@ struct RendererData
     f3* colors;
 };
 
-void Render(int screenWidth, int screenHeight, const unsigned int numFrames, const unsigned int samplesPerPixel, const unsigned int threadsPerBlock, float* backbuffer, unsigned long long& outRayCount)
+void Render(int screenWidth, int screenHeight, const unsigned int numFrames, const unsigned int samplesPerPixel, const unsigned int threadsPerBlock, const unsigned int maxDepth, float* backbuffer, unsigned long long& outRayCount)
 {
     f3 lookfrom(0, 2, 3);
     f3 lookat(0, 0, 0);
@@ -69,7 +69,7 @@ void Render(int screenWidth, int screenHeight, const unsigned int numFrames, con
     args.colors = colors;
     args.numRays = numRays;
 
-    deviceInitData(&s_Cam, screenWidth, screenHeight, samplesPerPixel, threadsPerBlock, s_Spheres, s_SphereMats, kSphereCount, numRays);
+    deviceInitData(&s_Cam, screenWidth, screenHeight, samplesPerPixel, threadsPerBlock, s_Spheres, s_SphereMats, kSphereCount, numRays, maxDepth);
 
     for (int frame = 0; frame < numFrames; frame++)
         deviceRenderFrame(frame);
