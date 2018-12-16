@@ -68,9 +68,6 @@ struct DeviceData
     float *clr_x;
     float *clr_y;
     float *clr_z;
-    float *atn_x;
-    float *atn_y;
-    float *atn_z;
     uint *ray_count;
 
     cCamera* camera;
@@ -371,10 +368,6 @@ __global__ void renderFrameKernel(const DeviceData data)
     data.clr_y[rIdx] = color.y;
     data.clr_z[rIdx] = color.z;
 
-    data.atn_x[rIdx] = attenuation.x;
-    data.atn_y[rIdx] = attenuation.y;
-    data.atn_z[rIdx] = attenuation.z;
-
     data.ray_count[rIdx] += depth;
 }
 
@@ -390,9 +383,6 @@ void deviceInitData(const Camera* camera, const uint width, const uint height, c
     gpuErrchk(cudaMalloc((void**)&deviceData.clr_x, numRays * sizeof(float)));
     gpuErrchk(cudaMalloc((void**)&deviceData.clr_y, numRays * sizeof(float)));
     gpuErrchk(cudaMalloc((void**)&deviceData.clr_z, numRays * sizeof(float)));
-    gpuErrchk(cudaMalloc((void**)&deviceData.atn_x, numRays * sizeof(float)));
-    gpuErrchk(cudaMalloc((void**)&deviceData.atn_y, numRays * sizeof(float)));
-    gpuErrchk(cudaMalloc((void**)&deviceData.atn_z, numRays * sizeof(float)));
 
     gpuErrchk(cudaMalloc((void**)&deviceData.ray_count, numRays * sizeof(uint)));
 
@@ -452,9 +442,6 @@ void deviceFreeData()
     gpuErrchk(cudaFree(deviceData.clr_x));
     gpuErrchk(cudaFree(deviceData.clr_y));
     gpuErrchk(cudaFree(deviceData.clr_z));
-    gpuErrchk(cudaFree(deviceData.atn_x));
-    gpuErrchk(cudaFree(deviceData.atn_y));
-    gpuErrchk(cudaFree(deviceData.atn_z));
     gpuErrchk(cudaFree(deviceData.ray_count));
 
     gpuErrchk(cudaFree(deviceData.camera));
