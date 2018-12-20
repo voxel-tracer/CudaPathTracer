@@ -433,6 +433,13 @@ void deviceEndRendering(f3* colors, unsigned long long& rayCount)
     for (uint i = 0; i < numRays; i++)
         rayCount += i_tmp[i];
 
+#ifdef SAVE_RAY_COUNTS
+    printf("\n");
+    for (uint i = 0; i < numRays; i++)
+        printf("%d, ", i_tmp[i]);
+    printf("\n");
+#endif
+
     gpuErrchk(cudaFreeHost(f_tmp));
     gpuErrchk(cudaFreeHost(i_tmp));
 }
