@@ -75,7 +75,7 @@ struct DeviceData
     uint frame;
     uint width;
     uint height;
-    uint samplesPerPixel;
+    uint threadsPerPixel;
     uint threadsPerBlock;
     uint maxDepth;
 };
@@ -330,23 +330,28 @@ __global__ void renderFrameKernel(const DeviceData data)
     if (rIdx >= data.numRays)
         return;
 
-    const uint w = data.width*data.samplesPerPixel;
+    const uint w = data.width*data.threadsPerPixel;
     const uint y = rIdx / w;
-    const uint x = (rIdx % w) / data.samplesPerPixel;
+    const uint x = (rIdx % w) / data.threadsPerPixel;
     uint state = ((cWang_hash(rIdx) + (data.frame*data.maxDepth) * 101141101) * 336343633) | 1;
 
-    cRay r = generateRay(x, y, data, state);
-
-    float3 color = make_float3(
-        data.clr_x[rIdx],
-        data.clr_y[rIdx],
-        data.clr_z[rIdx]
-    );
-    float3 attenuation = make_float3(1);
-    bool ray_done = false;
+    float3 color = make_float3(0);
+    uint samples_done = 0;
     uint depth = 0;
-    while (depth < data.maxDepth && !ray_done)
+    uint num_rays = 0;
+    float3 attenuation;
+    cRay r;
+
+    while (num_rays < data.maxDepth)
     {
+        bool ray_done = false;
+
+        if (depth == 0)
+        {
+            r = generateRay(x, y, data, state);
+            attenuation = make_float3(1);
+        }
+
         float hit_t;
         int hit_id = hitWorld(r, hit_t, kMinT, kMaxT);
 
@@ -362,21 +367,29 @@ __global__ void renderFrameKernel(const DeviceData data)
         }
 
         depth++;
+        num_rays++; // TODO combine depths such that we keep max_depth reached per sample
+
+        if (ray_done || depth == data.maxDepth)
+        {
+            samples_done++;
+            depth = 0;
+        }
     }
 
-    data.clr_x[rIdx] = color.x;
-    data.clr_y[rIdx] = color.y;
-    data.clr_z[rIdx] = color.z;
+    const float divider = 1.0f / max(samples_done, 1);
+    data.clr_x[rIdx] += color.x * divider;
+    data.clr_y[rIdx] += color.y * divider;
+    data.clr_z[rIdx] += color.z * divider;
 
-    data.ray_count[rIdx] += depth;
+    data.ray_count[rIdx] += num_rays;
 }
 
-void deviceInitData(const Camera* camera, const uint width, const uint height, const uint samplesPerPixel, const uint threadsPerBlock, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, const uint maxDepth)
+void deviceInitData(const Camera* camera, const uint width, const uint height, const uint threadsPerPixel, const uint threadsPerBlock, const Sphere* spheres, const Material* materials, const int spheresCount, const int numRays, const uint maxDepth)
 {
     deviceData.numRays = numRays;
     deviceData.width = width;
     deviceData.height = height;
-    deviceData.samplesPerPixel = samplesPerPixel;
+    deviceData.threadsPerPixel = threadsPerPixel;
     deviceData.threadsPerBlock = threadsPerBlock;
     deviceData.maxDepth = maxDepth;
 
